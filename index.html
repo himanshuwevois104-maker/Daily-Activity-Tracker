@@ -528,7 +528,20 @@ function visibleUserIds(viewer){                       // whose work can I see?
   if(viewer.level==="member") return [viewer.id];
   return subtree(viewer.id);                            // vp / manager: self + everyone below
 }
-const canManage = v => v.level!=="member";              // create pipelines, assign to others
+/* Anyone with an account may build a pipeline - a team member organising their
+   own work is a normal thing to want. */
+const canCreatePipeline = v => !!v;
+/* Who a person may hand work to: a manager covers their own team, a VP or the
+   CEO can reach anyone in the company, a team member only themselves. */
+function assignableUsers(v){
+  if(!v) return [];
+  if(v.level==="ceo" || v.level==="vp") return liveUsers();
+  if(v.level==="manager") { const t=new Set(subtree(v.id)); return liveUsers().filter(u=>t.has(u.id)); }
+  return [v];
+}
+const canAssignOthers = v => assignableUsers(v).length > 1;
+/* supervisory views (team workload table, team snapshot) */
+const canManage = v => v.level!=="member";
 function visiblePipes(v){
   const extra = new Set(rolePipeIds(v));
   let base;
@@ -539,6 +552,10 @@ function visiblePipes(v){
     base = PIPES.filter(p=>!p.dept || depts.has(p.dept) || p.createdBy===v.id);
   }
   PIPES.forEach(p=>{ if(extra.has(p.id) && !base.includes(p)) base.push(p); });
+  /* Any pipeline holding work you can see is itself visible - otherwise a task
+     assigned to you from another part of the company would have nowhere to show. */
+  const fromWork = new Set(visibleTasks(v).map(t=>t.pipe));
+  PIPES.forEach(p=>{ if(fromWork.has(p.id) && !base.includes(p)) base.push(p); });
   return base;
 }
 function visibleTasks(v){
@@ -546,8 +563,8 @@ function visibleTasks(v){
   const rp  = new Set(rolePipeIds(v));
   return TASKS.filter(t=>ids.has(t.assignee) || t.createdBy===v.id || rp.has(t.pipe));
 }
-const canEditTask = (v,t) => v.level==="ceo" || isAdmin(v) || t.assignee===v.id || t.createdBy===v.id
-  || subtree(v.id).includes(t.assignee);
+const canEditTask = (v,t) => v.level==="ceo" || v.level==="vp" || isAdmin(v)
+  || t.assignee===v.id || t.createdBy===v.id || subtree(v.id).includes(t.assignee);
 const canEditPipe = (v,p) => v.level==="ceo" || p.createdBy===v.id
   || (v.level==="vp" && visiblePipes(v).includes(p));
 /* a manager can't be moved under their own report — no cycles */
@@ -916,7 +933,7 @@ function renderDashboard(){
       </div>
       <div class="card card-pad">
         <div class="card-head"><div><h3>Pipelines</h3><div class="sub">Where work stands, stage by stage</div></div>
-          <div class="spacer"></div>${canManage(me)?`<button class="btn sm" data-act="newPipe">＋ New pipeline</button>`:""}</div>
+          <div class="spacer"></div>${canCreatePipeline(me)?`<button class="btn sm" data-act="newPipe">＋ New pipeline</button>`:""}</div>
         <div style="display:flex; flex-direction:column; gap:15px">
           ${pipes.map(p=>{ const ts=visibleTasks(me).filter(t=>t.pipe===p.id);
             const openN=ts.filter(t=>!t.done).length;
@@ -989,12 +1006,8 @@ function renderPipelines(){
       <h3 style="font-size:16px">No pipelines yet</h3>
       <div style="color:var(--ink2);font-size:13.5px;margin:6px auto 18px;max-width:430px">
         A pipeline is a flow of stages work moves through &mdash; Lead &rarr; Contacted &rarr; Won for sales,
-        Assigned &rarr; In Progress &rarr; Done for operations. ${canManage(me)
-          ? "Create the first one and start adding tasks."
-          : isAdmin(me)
-            ? "You are on the Admin account, which manages job roles and people. Pipelines are created by a Manager, VP or CEO &mdash; if you also run the company, set your own job role to Chief Executive Officer in Admin &rarr; Accounts."
-            : "Your manager creates these; tasks assigned to you will show up here."}</div>
-      ${canManage(me)?`<button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a pipeline</button>`:""}
+        Assigned &rarr; In Progress &rarr; Done for operations. Create the first one and start adding tasks.</div>
+      <button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a pipeline</button>
     </div>`;
     wireCommon(); return; }
   if(!pipes.find(p=>p.id===state.pipe)) state.pipe=pipes[0].id;
@@ -1011,7 +1024,7 @@ function renderPipelines(){
     ${pipes.map(p=>`<button class="pipe-tab ${p.id===state.pipe?"active":""}" data-pipe="${p.id}">
       <span class="pdot" style="background:var(--s${p.color})"></span>${esc(p.name)}
       <span style="color:var(--muted);font-weight:600">${visibleTasks(me).filter(t=>t.pipe===p.id&&!t.done).length}</span></button>`).join("")}
-    ${canManage(me)?`<button class="pipe-tab" data-act="newPipe" style="border-style:dashed">＋ New pipeline</button>`:""}
+    ${canCreatePipeline(me)?`<button class="pipe-tab" data-act="newPipe" style="border-style:dashed">＋ New pipeline</button>`:""}
   </div>
   <div class="filters">
     <input type="search" id="fSearch" placeholder="Search tasks…" value="${esc(state.fSearch)}">
@@ -1479,21 +1492,12 @@ function openTaskModal(taskId, preset={}){
       `A task lives on a pipeline &mdash; a flow of stages like
        Lead &rarr; Contacted &rarr; Won, or Assigned &rarr; In Progress &rarr; Done.
        There aren't any yet.<br><br>` +
-      (canManage(me)
-        ? `Open <b>Pipelines</b> and create one, then come back and add tasks to it.`
-        : isAdmin(me)
-          ? `You are signed in on the <b>Admin</b> account, which manages job roles and
-             people rather than work. Pipelines are created by a Manager, VP or CEO.<br><br>
-             If this is your own account and you also run the company, open
-             <b>Admin &rarr; Accounts</b>, edit yourself, and set your job role to
-             <b>Chief Executive Officer</b>. Save, and Pipelines will unlock.`
-          : `Pipelines are created by your manager. Once they make one, tasks assigned
-             to you will show up here.`));
+      `Open <b>Pipelines</b> and create one, then come back and add tasks to it.`);
     return;
   }
   const pipeId = t?.pipe || preset.pipe || state.pipe || pipes[0]?.id;
   const pipe = PIPES.find(p=>p.id===pipeId) || pipes[0];
-  const people = canManage(me) ? liveUsers().filter(u=>visibleUserIds(me).includes(u.id)) : [me];
+  const people = assignableUsers(me);
   modal(`<div class="modal">
     <h3>${t?"Edit task":"New task"}</h3>
     <div class="msub">${t?"Update details, move stage, or reassign.":"Create a task card on a pipeline."}</div>
@@ -1856,7 +1860,7 @@ function openPerson(id){
       <div class="card tile" style="padding:11px 13px"><div class="lbl">Overdue</div><div class="val" style="font-size:21px;${open.filter(t=>t.due&&t.due<TODAY).length?'color:var(--critical)':''}">${open.filter(t=>t.due&&t.due<TODAY).length}</div></div>
       <div class="card tile" style="padding:11px 13px"><div class="lbl">Logs today</div><div class="val" style="font-size:21px">${LOGS.filter(l=>l.user===id&&l.date===TODAY).length}</div></div>
     </div>
-    ${canManage(me)&&id!==me.id?`<button class="btn primary" style="width:100%;justify-content:center;margin-bottom:18px" id="assignBtn">＋ Assign a task to ${esc(u.name.split(" ")[0])}</button>`:""}
+    ${id!==me.id && assignableUsers(me).some(x=>x.id===id)?`<button class="btn primary" style="width:100%;justify-content:center;margin-bottom:18px" id="assignBtn">＋ Assign a task to ${esc(u.name.split(" ")[0])}</button>`:""}
     <div class="sec-h" style="margin-top:0"><h2 style="font-size:14px">Open tasks</h2></div>
     ${open.length?open.slice(0,6).map(t=>{ const p=PIPES.find(x=>x.id===t.pipe); return `
       <div class="trow"><div><div class="t" data-opentask="${t.id}">${esc(t.title)}</div>
