@@ -597,21 +597,40 @@ function openAccountMenu(){
     <div style="display:flex;gap:7px;margin:10px 0 18px;flex-wrap:wrap">${lvlBadge(me)}
       <span class="chip">${esc(me.dept)}</span>${me.admin?`<span class="chip">🛡 Admin</span>`:""}</div>
     <form id="pwForm" class="f-grid">
-      <div class="field"><label>Change password</label>
-        <input id="pwNew" type="password" minlength="8" placeholder="New password, at least 8 characters"></div>
+      <div class="field"><label>New password</label>
+        <input id="pwNew" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></div>
+      <div class="field"><label>Type it again</label>
+        <input id="pwNew2" type="password" minlength="8" autocomplete="new-password" placeholder="The same password once more"></div>
+      <div class="check-list"><label><input type="checkbox" id="pwShow"> Show what I typed</label></div>
+      <div id="pwErr" style="display:none;font-size:13px;color:var(--critical)"></div>
       <div class="m-actions">
         <button type="button" class="btn danger" id="soBtn2">Sign out</button>
         <div class="grow"></div>
         <button type="button" class="btn" id="pwCancel">Close</button>
         <button class="btn primary" type="submit">Update password</button></div>
     </form></div>`);
+  $("#pwShow").addEventListener("change",e=>{
+    const t = e.target.checked ? "text" : "password";
+    $("#pwNew").type=t; $("#pwNew2").type=t; });
   $("#pwCancel").addEventListener("click", closeModal);
   $("#soBtn2").addEventListener("click", ()=>{ closeModal(); logout(); });
   $("#pwForm").addEventListener("submit", async e=>{ e.preventDefault();
-    const v=$("#pwNew").value; if(!v || v.length<8){ toast("Use at least 8 characters."); return; }
+    const v=$("#pwNew").value, v2=$("#pwNew2").value;
+    const fail = m => { $("#pwErr").textContent=m; $("#pwErr").style.display="block"; };
+    $("#pwErr").style.display="none";
+    if(!v || v.length<8) return fail("Use at least 8 characters.");
+    if(v !== v2)         return fail("The two passwords do not match. Tick \u201CShow what I typed\u201D to check.");
+    if(/^\s|\s$/.test(v)) return fail("Your password starts or ends with a space, which is very easy to mistype later. Please remove it.");
+    const btn=$("#pwForm button[type=submit]"); btn.disabled=true; btn.textContent="Saving...";
     const {error} = await sb.auth.updateUser({password:v});
-    if(error){ toast(error.message); return; }
-    closeModal(); toast("Password updated ✓"); });
+    btn.disabled=false; btn.textContent="Update password";
+    if(error) return fail(error.message);
+    closeModal();
+    openInfoModal("Password changed",
+      `Your new password is active from now on.<br><br>
+       Write it down somewhere safe before you sign out &mdash; nobody, including your Admin,
+       can read it back for you. If it is ever lost, it has to be reset from the Supabase
+       dashboard.`); });
 }
 function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg;
   $("#toasts").appendChild(t); setTimeout(()=>{t.style.opacity="0"; t.style.transition=".3s"; setTimeout(()=>t.remove(),320)},2600); }
@@ -972,7 +991,9 @@ function renderPipelines(){
         A pipeline is a flow of stages work moves through &mdash; Lead &rarr; Contacted &rarr; Won for sales,
         Assigned &rarr; In Progress &rarr; Done for operations. ${canManage(me)
           ? "Create the first one and start adding tasks."
-          : "Your manager creates these; tasks assigned to you will show up here."}</div>
+          : isAdmin(me)
+            ? "You are on the Admin account, which manages job roles and people. Pipelines are created by a Manager, VP or CEO &mdash; if you also run the company, set your own job role to Chief Executive Officer in Admin &rarr; Accounts."
+            : "Your manager creates these; tasks assigned to you will show up here."}</div>
       ${canManage(me)?`<button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a pipeline</button>`:""}
     </div>`;
     wireCommon(); return; }
@@ -1453,6 +1474,23 @@ function openTaskModal(taskId, preset={}){
   const t = taskId ? TASKS.find(x=>x.id===taskId) : null;
   if(t && !canEditTask(me,t)){ openTaskView(t); return; }
   const pipes = visiblePipes(me);
+  if(!pipes.length){
+    openInfoModal("You need a pipeline first",
+      `A task lives on a pipeline &mdash; a flow of stages like
+       Lead &rarr; Contacted &rarr; Won, or Assigned &rarr; In Progress &rarr; Done.
+       There aren't any yet.<br><br>` +
+      (canManage(me)
+        ? `Open <b>Pipelines</b> and create one, then come back and add tasks to it.`
+        : isAdmin(me)
+          ? `You are signed in on the <b>Admin</b> account, which manages job roles and
+             people rather than work. Pipelines are created by a Manager, VP or CEO.<br><br>
+             If this is your own account and you also run the company, open
+             <b>Admin &rarr; Accounts</b>, edit yourself, and set your job role to
+             <b>Chief Executive Officer</b>. Save, and Pipelines will unlock.`
+          : `Pipelines are created by your manager. Once they make one, tasks assigned
+             to you will show up here.`));
+    return;
+  }
   const pipeId = t?.pipe || preset.pipe || state.pipe || pipes[0]?.id;
   const pipe = PIPES.find(p=>p.id===pipeId) || pipes[0];
   const people = canManage(me) ? liveUsers().filter(u=>visibleUserIds(me).includes(u.id)) : [me];
