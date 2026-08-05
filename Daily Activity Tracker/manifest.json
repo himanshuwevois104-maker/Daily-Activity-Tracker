@@ -1,9 +1,0 @@
-{
-  "name": "WeVois Daily Activity Tracker",
-  "short_name": "WeVois Tracker",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#f9f9f7",
-  "theme_color": "#2a78d6",
-  "description": "Pipelines, daily activity and team hierarchy for the WeVois internal team."
-}
