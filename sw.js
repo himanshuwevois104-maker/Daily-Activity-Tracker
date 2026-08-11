@@ -1,5 +1,5 @@
 /* Network-first so a redeploy lands immediately; cache is only a fallback. */
-const CACHE = 'wevois-tracker-v1';
+const CACHE = 'wevois-tracker-v2';
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
@@ -14,4 +14,24 @@ self.addEventListener('fetch', e => {
       return r;
     }).catch(() => caches.match(e.request))
   );
+});
+
+/* Clicking a desktop notification brings the tracker back to the front and
+   opens the task it was about, instead of starting a second copy of the app. */
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const taskId = (e.notification.data && e.notification.data.taskId) || null;
+  e.waitUntil((async () => {
+    const all = await self.clients.matchAll({type:'window', includeUncontrolled:true});
+    const mine = all.filter(c => c.url.startsWith(self.registration.scope));
+    if (mine.length) {
+      const c = mine[0];
+      await c.focus();
+      c.postMessage({type:'open-task', taskId});
+      return;
+    }
+    if (self.clients.openWindow) {
+      await self.clients.openWindow(taskId ? './index.html#task=' + taskId : './index.html');
+    }
+  })());
 });

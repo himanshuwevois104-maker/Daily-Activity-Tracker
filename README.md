@@ -26,7 +26,7 @@ Until step 2 is done the site loads but shows "Not configured yet".
 | `index.html` | the whole app — one file |
 | `supabase-config.js` | your project URL + anon key |
 | `manifest.json` | lets staff install it like an app on their phone |
-| `sw.js` | offline shell; network-first so redeploys land immediately |
+| `sw.js` | offline shell (network-first, so redeploys land immediately) **and** the desktop-notification click handler |
 
 All four must sit together in the same folder. `index.html` must be at the
 **root** of what the host serves, or the site will 404.

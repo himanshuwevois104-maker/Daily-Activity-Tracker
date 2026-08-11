@@ -432,6 +432,7 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
       <div><h1 id="viewTitle"></h1><div id="viewDate"></div></div>
       <div class="topbar-right">
         <button class="btn primary" id="quickAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span id="quickAddLbl">New task</span></button>
+        <button class="icon-btn" id="notifBtn" title="Desktop notifications"></button>
         <button class="icon-btn" id="themeBtn" title="Toggle theme"></button>
       </div>
     </div>
@@ -739,9 +740,146 @@ const IC = {
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
   inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5h4l1.4 2.4h6.2l1.4-2.4h4"/><path d="M5.6 5h12.8l2.1 8.5v3.9a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-3.9z"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16s-2-1.5-2-6.5z"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/></svg>',
+  bellOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 0 0-8.4-5.5M5.2 5.2A6 6 0 0 0 6 8.5c0 5-2 6.5-2 6.5h12"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/><path d="M3 3l18 18"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19"/></svg>',
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>',
 };
+
+/* ================= desktop notifications =================
+   Works the way WhatsApp Web does: real Windows/macOS notifications, delivered
+   while the app is open in a tab - background tab and minimised browser both
+   fine. Close the tab and they stop; that is the trade-off of not running a
+   push server. Nothing is sent anywhere new: the notification is built in the
+   browser from the realtime change the app is already listening to. */
+const NOTIF_KEY  = "dat-notify";
+const NOTIF_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAElklEQVR42u3dTVIjSRBEYVWaLoO4IJwALog4DizaegtIqp+M8O+tx4ZSlr/wSM3QvZwm5fJy/TqhDdf3yzLjcy3CjmQpFqFHsgyL0CNZhkXwkSzCIvhIFmERfCSLMIQfVdgiW0P4kSzBIvhIXomG8CO5DYbwI1mCIfxIlmAIP5IlGMKPZAmG8CNZgiH8SJZgCD+SJRiOCsmMtUwCKrbAEH4kSzCEH8kSuAPAHcD0R2oLaABoANMfqS2gAaABTH+ktoAGgAYA4gWw/iBxDdIA0ABAtADWH6SuQRoAGgAgAEAAIIvFBRgaACAAQACAAAABAAIABAAIABAAIABAgGn4eHvyFp3/3ZwdOtZ8H8+vn6WevdT/DPdT8KsdfPfpX+V9nCsfMrRCSwGEngxxK9AaobcGeV/lGsC0J9GRIhzSAFuGXgt4f7fgP4QhmkMEMKUxSy7aNYA7hfO1AgGzC2ANwgx5aNkA1iDnWkIALYCjc+AOAHcAdY3U8zxcAGuQ9UcDmFrOkQBAqADWIOuPBlDfzo8AQKgA1iDrjwZQ484tWQAtYPprAGBHzikf9OPtaZrJU+EPlEpZG6drgM5r0Mfb06/B+ss/Y/2xApWbarf+7ErPqgGwSaB8exUqQKc16NEQd5Jgxvca1wB7Bmqtn1XxmTWAtUcwCWANwtzvM7IBtp6mW/37qz63BtACpj8BtIspTYCYoDoPAsStQXuFqFJYZ39/0SuQFnAO7gBFQ0TeIAF8G1STCu8tvgHWmKRHTePKz04AgAD16/ToCTrrBK+ytmqA4DXARbqYALNNlVkCNFuQK31poQGgAVDrd3Y7Pj8BGtZrItXejwa4YyrOOj2rPz8BAALMXbOzT88jn6/ieqoBwtYD6w8B2odHyAME8G2Q96EBdpyg1aZqh89AAC3gPRDATu0uQADh8XkIYA1y/mtz9gqPnZrPr5+b/hyT3woE9Bagag3/f+7qz08AgAB4ZHq6zBMgvo6dNwGiw0NiAphKzpkAAAFCp6cWI4B6dr4ESA4PiQkAEKBTTd/6TB0+AwEAAuDeyekuQAB17TwJkBwcIhNAeJwjAZKDQ2QCAASoND3X/rldPgcBAAJoHdOYAGrcuRFAaISSAAAB6tf5XtO502chAECA+i2w98Ts9FkIABBAs5jUBBAa50MAgRFYAgAEmHtqzjJ9/d4BAXZ/2bOFxa9eEmC3lz5rWPzpEwTY/OXPHpZun2drlsvL9ctV6B8//ZWiFYPS7fMQALACAQQA1hHg+n5ZHAMSub5fFg0AKxBAAIAAQKAALsJIvABrAGgARwACWIMQuP5oAGgARwACWIMQuP5oAGiA3wwBuk5/DQAN8FdTgG7TXwNAA9xqDNBl+v/aACRA5/D/aQUiAbqG3x0A7gBrmQRUm/43NQAJ0C38N69AJECn8N91ByABuoT/7kswCdAh/HcLQAJ0CP9DApAA1cP/sAAkQOXwn06n06rh9XcNoErwV2sAbYCq4V9dABKgUvhXX4GsRKgS/F0EIAJm3yZ2XVeIgNnW6MP2dTJghrvjFBdWMgj9UUz7jQ0phH0PvgErOjNrxZR0IAAAAABJRU5ErkJggg==";
+const notifSupported = () => typeof Notification !== "undefined";
+function notifPref(){ try{ return localStorage.getItem(NOTIF_KEY) === "on"; }catch(_){ return false; } }
+function setNotifPref(v){ try{ localStorage.setItem(NOTIF_KEY, v?"on":"off"); }catch(_){} }
+const notifOn = () => notifSupported() && Notification.permission === "granted" && notifPref();
+function notifStatus(){
+  if(!notifSupported()) return "unsupported";
+  /* only call it insecure when the browser positively says so - an older
+     browser that doesn't define isSecureContext is not evidence of anything */
+  if(window.isSecureContext === false && location.hostname !== "localhost") return "insecure";
+  if(Notification.permission === "denied") return "blocked";
+  return notifOn() ? "on" : "off";
+}
+function paintNotifBtn(){
+  const b = $("#notifBtn"); if(!b) return;
+  const s = notifStatus(), on = s === "on";
+  b.innerHTML = on ? IC.bell : IC.bellOff;
+  b.style.color = on ? "var(--accent)" : "";
+  b.title = on ? "Desktop notifications are on — click to turn off"
+    : s==="blocked" ? "Notifications are blocked in this browser"
+    : s==="unsupported" ? "This browser cannot show desktop notifications"
+    : s==="insecure" ? "Notifications need the site to be served over https"
+    : "Turn on desktop notifications";
+}
+async function toggleNotifications(){
+  const s = notifStatus();
+  if(s === "unsupported"){ toast("This browser cannot show desktop notifications."); return; }
+  if(s === "insecure"){
+    openInfoModal("Notifications need https",
+      `Desktop notifications only work on a secure connection. Open the app on its
+       <b>https://</b> address (your Vercel URL) rather than a plain file or http address.`);
+    return;
+  }
+  if(s === "blocked"){
+    openInfoModal("Notifications are blocked",
+      `Your browser has blocked notifications for this site, so the app cannot ask again.<br><br>
+       Click the <b>padlock</b> (or the sliders icon) at the left of the address bar &rarr;
+       <b>Notifications</b> &rarr; <b>Allow</b>, then reload the page.<br><br>
+       Also worth checking on Windows: <b>Settings &rarr; System &rarr; Notifications</b>, and turn
+       <b>Do not disturb</b> off &mdash; with it on, notifications are collected silently instead of
+       appearing on screen.`);
+    return;
+  }
+  if(s === "on"){ setNotifPref(false); paintNotifBtn(); toast("Desktop notifications turned off"); return; }
+
+  let perm = Notification.permission;
+  if(perm !== "granted"){
+    try { perm = await Notification.requestPermission(); }
+    catch(_){ perm = Notification.permission; }
+  }
+  if(perm !== "granted"){ paintNotifBtn(); toast("Notifications were not allowed."); return; }
+  setNotifPref(true); paintNotifBtn();
+  toast("Desktop notifications on ✓");
+  showNotify("Notifications are on",
+    "Updates to your team's tasks will appear here, even when this tab is in the background.",
+    null, true);
+}
+/* Show one. Skipped while the tab is in front - you can already see the change,
+   so a popup would only be noise; a toast is shown instead. */
+async function showNotify(title, body, taskId, force){
+  if(!notifOn()) return false;
+  if(!force && document.visibilityState === "visible" && document.hasFocus()){ toast(body); return false; }
+  const opts = {body, icon:NOTIF_ICON, badge:NOTIF_ICON, tag:"dat-"+(taskId||"app"),
+                renotify:true, data:{taskId:taskId||null}};
+  try{
+    const reg = navigator.serviceWorker ? await navigator.serviceWorker.getRegistration() : null;
+    if(reg && reg.showNotification){ await reg.showNotification(title, opts); return true; }
+  }catch(_){}
+  try{ new Notification(title, opts); return true; }catch(_){ return false; }
+}
+
+/* Who hears about a change: the people the actor reports up to.
+   - never yourself, about your own action
+   - only if that person's work is yours to oversee (dat_visible_users, i.e.
+     your own branch; everyone, for the CEO)
+   A team member oversees nobody, so they are never notified by this rule. */
+function shouldNotify(ev){
+  const me = state.me;
+  if(!me || !ev || !ev.actor) return false;
+  if(ev.actor === me.id) return false;
+  if(me.level === "member") return false;
+  return visibleUserIds(me).includes(ev.actor);
+}
+function evPlain(e, who){
+  switch(e.kind){
+    case "created":  return `${who} created this task in ${e.to||"the first stage"}`;
+    case "moved":    return `${who} moved it: ${e.from||"—"} → ${e.to||"—"}`;
+    case "assigned": return `${who} reassigned it to ${e.to||"someone else"}`;
+    case "priority": return `${who} changed priority: ${e.from||"—"} → ${e.to||"—"}`;
+    case "due":      return e.to ? `${who} set the due date to ${fmtDate(e.to)}` : `${who} removed the due date`;
+    case "renamed":  return `${who} renamed it`;
+    case "edited":   return `${who} edited the notes`;
+    case "done":     return `${who} marked it done`;
+    case "reopened": return `${who} reopened it`;
+    case "comment":  return `${who}: ${e.note}`;
+    default:         return `${who} updated this task`;
+  }
+}
+const notifSeen = new Set();
+async function onTaskEventLive(payload){
+  const row = payload && payload.new; if(!row) return;
+  if(notifSeen.has(row.id)) return;                 // realtime can deliver twice
+  notifSeen.add(row.id);
+  if(notifSeen.size > 400) notifSeen.clear();
+  if(!shouldNotify(row)) return;
+  const ev = mapTEv(row);
+  const who = U(ev.actor)?.name || "A colleague";
+  let t = TASKS.find(x=>x.id===ev.task);
+  if(!t){                                            // a task created since the last load
+    try{ const {data} = await sb.from("dat_tasks").select("*").eq("id",ev.task).single();
+         if(data) t = mapTask(data); }catch(_){}
+  }
+  showNotify(t?.title ? trunc(t.title) : "Task updated", evPlain(ev, who), ev.task);
+}
+/* Clicking the notification asks the service worker to focus this tab; it
+   messages us back with the task to open. */
+function wireNotifBridge(){
+  if(!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.addEventListener("message", e=>{
+    const d = e.data || {};
+    if(d.type !== "open-task") return;
+    window.focus();
+    if(!d.taskId || !state.me) return;
+    const t = TASKS.find(x=>x.id===d.taskId);
+    if(t){ state.view = "pipelines"; state.pipe = t.pipe; render(); openTaskModal(t.id); }
+  });
+}
 
 /* ================= shell ================= */
 const NAVS = [
@@ -880,6 +1018,10 @@ function subscribeRealtime(){
   chan = sb.channel("dat-live");
   ["dat_tasks","dat_logs","dat_pipelines","dat_profiles","dat_job_roles","dat_requests","dat_departments","dat_log_categories","dat_docs"]
     .forEach(t=>chan.on("postgres_changes",{event:"*",schema:"public",table:t},queueReload));
+  /* Task history drives the desktop notifications. Realtime only delivers rows
+     the signed-in person is allowed to read, so this cannot leak another
+     branch's work even before shouldNotify() looks at it. */
+  chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_task_events"}, onTaskEventLive);
   chan.subscribe();
 }
 function queueReload(){
@@ -909,7 +1051,7 @@ function render(){
   $("#quickAdd").classList.toggle("hidden", state.view==="admin"||state.view==="requests");
   $("#quickAddLbl").textContent = state.view==="daily" ? "Log activity"
     : state.view==="documents" ? "Add document" : "New task";
-  applyTheme();
+  applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, documents:renderDocs,
     team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
 }
@@ -2265,6 +2407,7 @@ document.addEventListener("click",e=>{
 $("#meCard").addEventListener("click",openAccountMenu);
 $("#drawerScrim").addEventListener("click",closeDrawer);
 $("#themeBtn").addEventListener("click",()=>{ state.theme=state.theme==="dark"?"light":"dark"; applyTheme(); });
+$("#notifBtn").addEventListener("click", toggleNotifications);
 $("#quickAdd").addEventListener("click",()=>{
   if(state.view==="daily"){ const n=$("#qaNote"); if(n){ n.focus(); n.scrollIntoView({behavior:"smooth",block:"center"}); } else toast("Pick a person tab with write access"); }
   else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
@@ -2272,6 +2415,8 @@ $("#quickAdd").addEventListener("click",()=>{
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });
 
+paintNotifBtn();
+wireNotifBridge();
 boot();
 if("serviceWorker" in navigator && location.protocol==="https:")
   navigator.serviceWorker.register("sw.js").catch(()=>{});
