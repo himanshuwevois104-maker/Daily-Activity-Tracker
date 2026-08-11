@@ -340,6 +340,48 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .toast{background:var(--ink); color:var(--page); padding:10px 16px; border-radius:11px; font-size:13px;
   font-weight:550; box-shadow:var(--shadow-lg); animation:pop .2s ease; display:flex; gap:8px; align-items:center}
 
+/* Task timeline */
+.tl-wrap{margin-top:22px; border-top:1px solid var(--border); padding-top:16px}
+.tl-sum{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
+.tl-sum .b{background:var(--surface-2); border-radius:10px; padding:7px 11px; font-size:12px; line-height:1.35}
+.tl-sum .b .k{color:var(--muted); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px}
+.tl-sum .b .v{font-weight:650; color:var(--ink)}
+.tl-bars{display:flex; height:9px; border-radius:99px; overflow:hidden; margin-bottom:7px; background:var(--surface-2)}
+.tl-bars i{display:block; height:100%}
+.tl-key{display:flex; gap:12px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-bottom:16px}
+.tl-key span{display:inline-flex; align-items:center; gap:5px}
+.tl-key .sw{width:9px; height:9px; border-radius:3px}
+.tl-list{position:relative; padding-left:20px; max-height:280px; overflow-y:auto}
+.tl-list:before{content:""; position:absolute; left:5px; top:4px; bottom:4px; width:2px; background:var(--grid)}
+.tl-row{position:relative; padding:0 0 13px 0; font-size:12.5px}
+.tl-row:last-child{padding-bottom:2px}
+.tl-row .dot{position:absolute; left:-19px; top:4px; width:9px; height:9px; border-radius:50%;
+  background:var(--baseline); border:2px solid var(--surface); box-sizing:content-box}
+.tl-row.k-created .dot{background:var(--accent)}
+.tl-row.k-done .dot{background:var(--good)}
+.tl-row.k-reopened .dot{background:var(--serious)}
+.tl-row.k-comment .dot{background:var(--s7,var(--accent))}
+.tl-row .when{color:var(--muted); font-size:11.5px; margin-left:6px; white-space:nowrap}
+.tl-row .said{background:var(--surface-2); border-radius:9px; padding:7px 10px; margin-top:4px;
+  font-size:13px; color:var(--ink); white-space:pre-wrap}
+.tl-add{display:flex; gap:8px; margin-top:12px}
+.tl-add input{flex:1; padding:8px 11px; border-radius:9px; border:1px solid var(--border);
+  background:var(--surface); font-size:13px}
+
+/* Documents */
+.doc-drop{border:1.5px dashed var(--border); border-radius:12px; padding:18px; text-align:center;
+  cursor:pointer; transition:.15s; background:var(--surface); font-size:13px; color:var(--muted)}
+.doc-drop:hover,.doc-drop.hot{border-color:var(--accent); background:var(--surface-2); color:var(--ink)}
+.doc-drop b{color:var(--ink); font-weight:650}
+.doc-pick{display:flex; align-items:center; gap:10px; margin-top:11px; font-size:13px;
+  background:var(--surface-2); border-radius:10px; padding:9px 12px}
+.doc-pick .x{margin-left:auto}
+.log-entry .file-ic{width:34px; height:34px; border-radius:9px; flex:none; display:flex;
+  align-items:center; justify-content:center; font-size:10px; font-weight:800; letter-spacing:.3px;
+  background:var(--surface-2); color:var(--muted); text-transform:uppercase}
+.doc-name{font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer; word-break:break-word}
+.doc-name:hover{color:var(--accent); text-decoration:underline}
+
 /* Section headers inside views */
 .sec-h{display:flex; align-items:center; gap:10px; margin:26px 0 13px}
 .sec-h h2{font-size:16px}
@@ -432,7 +474,7 @@ const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{labe
 
 /* ---------------- live data, loaded from Supabase ---------------- */
 let DEPTS = [], ROLES = [], USERS = [], PIPES = [], TASKS = [],
-    LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [];
+    LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [];
 const U = id => USERS.find(u=>u.id===id);
 
 /* ---------------- Supabase ---------------- */
@@ -470,21 +512,39 @@ const mapUser = p => ({id:p.id, name:p.name, email:p.email||"", role:p.role_id, 
 const mapPipe = p => ({id:p.id, name:p.name, dept:p.dept, color:p.color,
   stages:Array.isArray(p.stages)?p.stages:JSON.parse(p.stages||"[]"), createdBy:p.created_by});
 const mapTask = t => ({id:t.id, pipe:t.pipeline_id, stage:t.stage, title:t.title, desc:t.description||"",
-  assignee:t.assignee, pr:t.priority, due:t.due, done:!!t.done, doneOn:t.done_on, createdBy:t.created_by});
+  assignee:t.assignee, pr:t.priority, due:t.due, done:!!t.done, doneOn:t.done_on, createdBy:t.created_by,
+  createdAt:t.created_at?new Date(t.created_at).getTime():null,
+  startedAt:t.started_at?new Date(t.started_at).getTime():null,
+  closedAt:t.closed_at?new Date(t.closed_at).getTime():null});
+const mapTEv = e => ({id:e.id, seq:Number(e.seq)||0, task:e.task_id, actor:e.actor, kind:e.kind,
+  from:e.old_val, to:e.new_val, note:e.note||"", ts:new Date(e.created_at).getTime()});
 const mapCat = c => ({id:c.id, name:c.name, ic:c.icon, active:c.active!==false});
 const mapLog = l => ({id:l.id, user:l.user_id, date:l.log_date, cat:l.category_id, note:l.note});
 const mapReq = r => ({id:r.id, kind:r.kind, by:r.requested_by, on:(r.created_at||"").slice(0,10),
   status:r.status, payload:r.payload||{}, note:r.note||"", decidedBy:r.decided_by,
   decidedOn:r.decided_on, reason:r.reason||""});
 const mapEv = e => ({id:e.id, user:e.user_id, type:e.type, text:e.text, ts:new Date(e.created_at).getTime()});
+const mapDoc = d => ({id:d.id, user:d.user_id, title:d.title||"", note:d.note||"", path:d.path,
+  file:d.file_name||"", mime:d.mime||"", size:Number(d.size_bytes)||0, date:d.log_date,
+  ts:new Date(d.created_at).getTime()});
+
+/* Documents are an add-on (TRACKER-UPDATE-02.sql). If that migration has not
+   been run yet the table is missing — the rest of the app must still load, so
+   this one query is allowed to come back empty instead of failing everything. */
+let DOCS_READY = true;
+async function loadDocs(){
+  try{ const d = await DB.sel("dat_docs"); DOCS_READY = true; return d; }
+  catch(e){ DOCS_READY = false; console.warn("Documents unavailable:", e.message||e); return []; }
+}
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
+    loadDocs(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -495,6 +555,7 @@ async function loadAll(){
   LOGS = l.map(mapLog);
   REQS = q.map(mapReq).sort((a,b)=>(b.on||"").localeCompare(a.on||""));
   EVENTS = e.map(mapEv);
+  DOCS = dc.map(mapDoc).sort((a,b)=>b.ts-a.ts);
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -507,6 +568,7 @@ const state = {
   fAssignee:"all", fPriority:"all", fSearch:"", showDone:true,
   theme: (matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
   logWho:null,   // person filter on daily-log view (managers+)
+  docWho:null,   // person filter on documents view
   adminTab:"accounts",
 };
 
@@ -515,6 +577,9 @@ const roleOf   = u => ROLES.find(r=>r.id===u?.role) || null;
 const titleOf  = u => roleOf(u)?.name || "No job role";
 const isAdmin  = u => !!u?.admin;
 const canRequest = u => u.level==="ceo" || u.level==="vp";   // may raise a request to Admin
+/* The org chart lays out the whole reporting line, so it stays with leadership:
+   CEO, VP and Admins only. Managers and team members never see the Team tab. */
+const canSeeTeam = u => !!u && (u.level==="ceo" || u.level==="vp" || !!u.admin);
 const isLive   = u => u.active !== false;
 const liveUsers = () => USERS.filter(isLive);
 const pendingReqs = () => REQS.filter(r=>r.status==="pending");
@@ -528,6 +593,19 @@ function visibleUserIds(viewer){                       // whose work can I see?
   if(viewer.level==="member") return [viewer.id];
   return subtree(viewer.id);                            // vp / manager: self + everyone below
 }
+/* Documents follow their OWN rule, wider than tasks and the daily log:
+   a document you attach is visible to you, to everyone above you in the
+   reporting line, and to every VP and the CEO — company-wide, not just your
+   branch. Mirrors dat_can_see_docs() in TRACKER-UPDATE-02.sql exactly; the
+   database is what actually enforces it, this is only so the screen matches. */
+function docVisibleUserIds(viewer){
+  if(!viewer) return [];
+  if(viewer.level==="ceo" || viewer.level==="vp") return liveUsers().map(u=>u.id);
+  if(viewer.level==="manager") return subtree(viewer.id);
+  return [viewer.id];
+}
+const canSeeDocsOf = (viewer, id) => docVisibleUserIds(viewer).includes(id);
+
 /* Anyone with an account may build a pipeline - a team member organising their
    own work is a normal thing to want. */
 const canCreatePipeline = v => !!v;
@@ -657,6 +735,7 @@ const IC = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="12" width="7.5" height="9" rx="1.6"/><rect x="3" y="15.5" width="7.5" height="5.5" rx="1.6"/></svg>',
   pipe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 5v13a1.5 1.5 0 0 0 1.5 1.5H8M4 5l4 0M20 5v7a1.5 1.5 0 0 1-1.5 1.5H16"/><rect x="8" y="9" width="8" height="12" rx="1.5"/></svg>',
   log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5z"/><path d="M5 4v16M9 9h5M9 13h5"/></svg>',
+  doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/><path d="M9 13h6M9 16.5h4"/></svg>',
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
   inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5h4l1.4 2.4h6.2l1.4-2.4h4"/><path d="M5.6 5h12.8l2.1 8.5v3.9a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-3.9z"/></svg>',
@@ -669,12 +748,13 @@ const NAVS = [
   {id:"dashboard", label:"Dashboard", ic:IC.dash},
   {id:"pipelines", label:"Pipelines", ic:IC.pipe},
   {id:"daily",     label:"Daily Log", ic:IC.log},
-  {id:"team",      label:"Team",      ic:IC.team},
+  {id:"documents", label:"Documents", ic:IC.doc},
 ];
-const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Pipelines", daily:"Daily Log", team:"Team",
-  admin:"Admin console", requests:"My requests"};
+const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Pipelines", daily:"Daily Log",
+  documents:"Documents", team:"Team", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
+  if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
   if(isAdmin(me)) n.push({id:"admin", label:"Admin", ic:IC.admin, count:pendingReqs().length});
   else if(canRequest(me)) n.push({id:"requests", label:"Requests", ic:IC.inbox,
     count:REQS.filter(r=>r.by===me.id&&r.status==="pending").length});
@@ -776,7 +856,7 @@ async function afterLogin(){
     $("#soBtn").addEventListener("click", logout); return; }
   state.me = USERS.find(u=>u.id===user.id);
   if(!state.me || !state.me.active){ renderNoProfile(user.email); return; }
-  state.view="dashboard"; state.logWho=null; state.adminTab="accounts";
+  state.view="dashboard"; state.logWho=null; state.docWho=null; state.adminTab="accounts";
   state.fAssignee="all"; state.fPriority="all"; state.fSearch="";
   const vp = visiblePipes(state.me); state.pipe = vp[0]?.id || null;
   $("#login").classList.add("hidden");
@@ -798,7 +878,7 @@ let chan=null, reloadTimer=null;
 function subscribeRealtime(){
   if(chan) return;
   chan = sb.channel("dat-live");
-  ["dat_tasks","dat_logs","dat_pipelines","dat_profiles","dat_job_roles","dat_requests","dat_departments","dat_log_categories"]
+  ["dat_tasks","dat_logs","dat_pipelines","dat_profiles","dat_job_roles","dat_requests","dat_departments","dat_log_categories","dat_docs"]
     .forEach(t=>chan.on("postgres_changes",{event:"*",schema:"public",table:t},queueReload));
   chan.subscribe();
 }
@@ -823,12 +903,15 @@ function render(){
   $("#meCard").innerHTML = `${avatar(me,"md")}<div class="mcol"><div class="nm">${esc(me.name)}</div><div class="rl">${esc(titleOf(me))}</div></div>`;
   $("#viewTitle").textContent = VIEW_TITLES[state.view];
   $("#viewDate").textContent = state.view==="admin" ? "Job roles, accounts and requests"
-    : state.view==="requests" ? "Ask the Admin to create a job role or account" : fmtDateLong(TODAY);
+    : state.view==="requests" ? "Ask the Admin to create a job role or account"
+    : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
+    : fmtDateLong(TODAY);
   $("#quickAdd").classList.toggle("hidden", state.view==="admin"||state.view==="requests");
-  $("#quickAddLbl").textContent = state.view==="daily" ? "Log activity" : "New task";
+  $("#quickAddLbl").textContent = state.view==="daily" ? "Log activity"
+    : state.view==="documents" ? "Add document" : "New task";
   applyTheme();
-  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, team:renderTeam,
-    admin:renderAdmin, requests:renderRequests}[state.view])();
+  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, documents:renderDocs,
+    team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
 }
 
 /* ================= tooltip ================= */
@@ -974,7 +1057,7 @@ function renderDashboard(){
       <div class="card card-pad">
         <div class="card-head"><div><h3>Recent activity</h3><div class="sub">Latest updates in your scope</div></div></div>
         ${feed.length?feed.map(e=>{ const u=U(e.user); return `<div class="feed-item">
-          <div class="fic">${e.type==="done"?"✅":e.type==="move"?"➡️":e.type==="log"?"📝":"✨"}</div>
+          <div class="fic">${e.type==="done"?"✅":e.type==="move"?"➡️":e.type==="log"?"📝":e.type==="doc"?"📎":"✨"}</div>
           <div><div class="ftxt"><b>${esc(u.name)}</b> ${esc(e.text)}</div><div class="ftm">${timeAgo(e.ts)}</div></div></div>`;}).join("")
         :`<div style="color:var(--muted);font-size:13px">No recent activity.</div>`}
       </div>
@@ -1099,6 +1182,7 @@ async function moveTask(t, stage){
   t.stage=stage; t.done=done; t.doneOn=doneOn; render();          // optimistic
   const ok = await guard(()=>DB.upd("dat_tasks", t.id, {stage, done, done_on:doneOn}));
   if(ok===null){ Object.assign(t, prev); render(); return; }      // rejected: put it back
+  Object.assign(t, mapTask(ok));   // pick up started_at / closed_at the trigger just stamped
   addEvent(done?"done":"move", done?`completed “${t.title}”`:`moved “${t.title}” to ${stage}`);
   toast(done?`✓ “${trunc(t.title)}” completed`:`Moved to ${stage}`);
 }
@@ -1166,10 +1250,165 @@ function renderDaily(){
   }));
 }
 
+/* ================= documents ================= */
+const DOC_BUCKET = "dat-docs";
+const DOC_MAX = 25*1024*1024;                       // keep in step with the bucket limit in the SQL
+const fmtBytes = n => !n ? "" : n<1024 ? n+" B"
+  : n<1048576 ? (n/1024).toFixed(0)+" KB" : (n/1048576).toFixed(1)+" MB";
+const docExt = d => ((d.file||"").split(".").pop()||"file").slice(0,4);
+const docsOf = id => DOCS.filter(d=>d.user===id);
+
+/* Upload the file, then record it. If the record fails, the orphaned file is
+   removed again so the bucket never fills with things nothing points at. */
+async function uploadDoc(file, title, note){
+  const me = state.me;
+  if(file.size > DOC_MAX){ toast(`"${file.name}" is ${fmtBytes(file.size)} — the limit is 25 MB.`); return null; }
+  const safe = file.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+  const path = `${me.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safe}`;
+  const {error:upErr} = await sb.storage.from(DOC_BUCKET)
+    .upload(path, file, {contentType:file.type||"application/octet-stream", upsert:false});
+  if(upErr){
+    console.error(upErr);
+    toast(/bucket not found/i.test(upErr.message||"")
+      ? "File storage is not set up yet — run TRACKER-UPDATE-02.sql."
+      : (upErr.message || "Upload failed."));
+    return null;
+  }
+  const row = await guard(()=>DB.ins("dat_docs",{user_id:me.id, title, note, path,
+    file_name:file.name, mime:file.type||"", size_bytes:file.size, log_date:TODAY}));
+  if(!row){ await sb.storage.from(DOC_BUCKET).remove([path]).catch(()=>{}); return null; }
+  return row;
+}
+/* Private bucket: every download is a fresh short-lived signed link. The blank
+   tab is opened before the await so the browser does not treat it as a popup. */
+async function openDoc(d, asDownload, win){
+  const {data,error} = await sb.storage.from(DOC_BUCKET)
+    .createSignedUrl(d.path, 120, asDownload ? {download: d.file||true} : {});
+  if(error||!data){ if(win) win.close(); console.error(error);
+    toast("Could not open that file — it may have been removed."); return; }
+  if(win) win.location.href = data.signedUrl; else window.open(data.signedUrl,"_blank","noopener");
+}
+async function deleteDoc(d){
+  if(await guard(()=>DB.del("dat_docs", d.id).then(()=>true)) === null) return false;
+  await sb.storage.from(DOC_BUCKET).remove([d.path]).catch(()=>{});
+  const i = DOCS.findIndex(x=>x.id===d.id); if(i>-1) DOCS.splice(i,1);
+  return true;
+}
+
+function renderDocs(){
+  const me=state.me, ids=docVisibleUserIds(me);
+  const team = ids.length>1;
+  const who = state.docWho && ids.includes(state.docWho) ? state.docWho : (team?"all":me.id);
+  const scopeIds = who==="all" ? ids : [who];
+  const items = DOCS.filter(d=>scopeIds.includes(d.user))
+    .sort((a,b)=> (b.date||"").localeCompare(a.date||"") || b.ts-a.ts);
+  const days = [...new Set(items.map(d=>d.date))];
+  let picked = null;                                  // the file chosen but not yet uploaded
+
+  $("#view").innerHTML = `
+  ${!DOCS_READY?`<div class="card card-pad" style="margin-bottom:18px;border-color:var(--critical)">
+    <b>Documents are not switched on yet.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:5px">Run <code>TRACKER-UPDATE-02.sql</code>
+    in the Supabase SQL Editor, then reload this page.</div></div>`:""}
+  ${team?`<div class="pipe-tabs">
+    <button class="pipe-tab ${who==="all"?"active":""}" data-docwho="all">👥 Everyone I can see</button>
+    ${liveUsers().filter(u=>ids.includes(u.id)).sort((a,b)=>(b.id===me.id)-(a.id===me.id)||a.name.localeCompare(b.name))
+      .map(u=>`<button class="pipe-tab ${who===u.id?"active":""}" data-docwho="${u.id}">
+      ${esc(u.id===me.id?"Me":u.name)}<span style="color:var(--muted);font-weight:600">${docsOf(u.id).length}</span></button>`).join("")}
+  </div>`:""}
+
+  <div class="card card-pad" style="margin-bottom:18px">
+    <div class="card-head"><div><h3>Attach a document</h3>
+      <div class="sub">Visible to you, to everyone above you in your reporting line, and to the VPs and the CEO. Up to 25 MB.</div></div></div>
+    <div class="doc-drop" id="docDrop"><b>Choose a file</b> or drag it here — PDF, image, Word, Excel, anything</div>
+    <input type="file" id="docFile" style="display:none">
+    <div id="docPickBox"></div>
+    <div class="qa-form" style="grid-template-columns:1fr 1fr auto; margin-top:11px">
+      <input id="docTitle" placeholder="Title (optional) — e.g. Ward 12 site photos">
+      <input id="docNote"  placeholder="Note (optional) — what this is for">
+      <button class="btn primary" id="docUp" disabled>Upload</button>
+    </div>
+  </div>
+
+  ${days.length?days.map(dt=>{
+    const dd=items.filter(x=>x.date===dt);
+    return `<div class="log-day card card-pad">
+      <div class="dhead"><span class="dt">${relDay(dt)}</span><span class="dsub">${fmtDateLong(dt)} · ${dd.length} file${dd.length===1?"":"s"}</span></div>
+      ${dd.map(d=>{ const u=U(d.user), own=d.user===me.id;
+        return `<div class="log-entry">
+          <div class="file-ic">${esc(docExt(d))}</div>
+          <div style="min-width:0">
+            <div class="doc-name" data-opendoc="${d.id}">${esc(d.title||d.file||"Untitled")}</div>
+            <div class="lmeta">${team&&who==="all"?`<b style="color:var(--ink)">${esc(u?.name||"Someone")}</b> ·`:""}
+              ${esc(d.file)}${d.size?` · ${fmtBytes(d.size)}`:""}</div>
+            ${d.note?`<div class="note">${esc(d.note)}</div>`:""}
+          </div>
+          <div class="acts" style="opacity:1">
+            <button class="mini-btn" data-getdoc="${d.id}">Download</button>
+            ${own?`<button class="mini-btn" data-deldoc="${d.id}" style="color:var(--critical)">Delete</button>`:""}
+          </div>
+        </div>`;}).join("")}
+    </div>`;}).join("")
+  :`<div class="card card-pad" style="text-align:center;color:var(--muted)">
+      No documents yet${who!=="all"&&who!==me.id?" from this person":""}. ${who===me.id||who==="all"?"Attach the first one above.":""}</div>`}`;
+
+  /* ---- wiring ---- */
+  document.querySelectorAll("[data-docwho]").forEach(b=>b.addEventListener("click",()=>{
+    state.docWho=b.dataset.docwho; renderDocs(); }));
+
+  const drop=$("#docDrop"), inp=$("#docFile"), upBtn=$("#docUp"), box=$("#docPickBox");
+  function showPick(){
+    upBtn.disabled = !picked;
+    box.innerHTML = picked ? `<div class="doc-pick"><span class="file-ic" style="width:26px;height:26px">${esc(((picked.name.split(".").pop())||"").slice(0,4))}</span>
+      <span style="min-width:0;word-break:break-word">${esc(picked.name)}</span>
+      <span style="color:var(--muted)">${fmtBytes(picked.size)}</span>
+      <button class="mini-btn x" id="docClear">Remove</button></div>` : "";
+    const c=$("#docClear"); if(c) c.addEventListener("click",()=>{ picked=null; inp.value=""; showPick(); });
+  }
+  function take(f){
+    if(!f) return;
+    if(f.size > DOC_MAX){ toast(`That file is ${fmtBytes(f.size)} — the limit is 25 MB.`); return; }
+    picked=f;
+    if(!$("#docTitle").value.trim()) $("#docTitle").value = f.name.replace(/\.[^.]+$/,"").slice(0,80);
+    showPick();
+  }
+  drop.addEventListener("click",()=>inp.click());
+  inp.addEventListener("change",()=>take(inp.files&&inp.files[0]));
+  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add("hot"); }));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove("hot"); }));
+  drop.addEventListener("drop",e=>take(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]));
+
+  upBtn.addEventListener("click", async ()=>{
+    if(!picked) return;
+    upBtn.disabled=true; upBtn.textContent="Uploading...";
+    const row = await uploadDoc(picked, $("#docTitle").value.trim(), $("#docNote").value.trim());
+    upBtn.textContent="Upload"; upBtn.disabled=false;
+    if(!row) return;
+    DOCS.unshift(mapDoc(row));
+    addEvent("doc","attached a document");
+    picked=null; toast("Document attached ✓"); renderDocs();
+  });
+
+  document.querySelectorAll("[data-opendoc],[data-getdoc]").forEach(el=>el.addEventListener("click",()=>{
+    const id = el.dataset.opendoc || el.dataset.getdoc;
+    const d = DOCS.find(x=>x.id===id); if(!d) return;
+    const w = window.open("", "_blank");            // opened synchronously, before any await
+    openDoc(d, !!el.dataset.getdoc, w);
+  }));
+  document.querySelectorAll("[data-deldoc]").forEach(el=>el.addEventListener("click", async ()=>{
+    const d = DOCS.find(x=>x.id===el.dataset.deldoc); if(!d) return;
+    el.disabled=true;
+    if(await deleteDoc(d)){ toast("Document deleted"); renderDocs(); } else el.disabled=false;
+  }));
+  showPick();
+}
+
 /* ================= team (org chart) ================= */
 function renderTeam(){
   const me=state.me;
-  const rootId = me.level==="member" ? me.mgr : me.id;   // member sees their own team, read-only
+  /* leadership only — anyone else who lands here is sent back to their dashboard */
+  if(!canSeeTeam(me)){ state.view="dashboard"; render(); return; }
+  const rootId = me.level==="member" ? (me.mgr || me.id) : me.id;   // admin at member level: start from their own team
   const readOnlyNote = me.level==="member" ? `<div class="sub">Your team — tap a person to view their public profile</div>` : `<div class="sub">Your reporting line — click anyone to see their work</div>`;
   const chainUp = [];
   let p = U(rootId)?.mgr; while(p){ chainUp.unshift(U(p)); p=U(p).mgr; }
@@ -1477,6 +1716,115 @@ function openRequestModal(kind){
     closeModal(); toast("Request sent to Admin ✓"); render(); });
 }
 
+/* ================= task timeline =================
+   Every change to a task is written by a database trigger (TRACKER-UPDATE-03.sql),
+   so this only has to read it back and say it plainly. */
+const STAGE_COLORS = ["--s1","--s4","--s3","--s7","--s2","--s5","--s6","--s8"];
+const fmtWhen = ts => new Date(ts).toLocaleString("en-IN",
+  {day:"numeric", month:"short", hour:"numeric", minute:"2-digit", hour12:true});
+function fmtDur(ms){
+  if(ms==null || ms<0) return "—";
+  const m=Math.floor(ms/6e4), h=Math.floor(m/60), d=Math.floor(h/24);
+  if(d>0) return d+"d"+(h%24?" "+(h%24)+"h":"");
+  if(h>0) return h+"h"+(m%60?" "+(m%60)+"m":"");
+  return Math.max(m,1)+"m";
+}
+async function loadTaskEvents(taskId){
+  const {data,error} = await sb.from("dat_task_events").select("*")
+    .eq("task_id", taskId).order("seq",{ascending:true});
+  if(error) throw error;
+  return (data||[]).map(mapTEv).sort((a,b)=>a.seq-b.seq || a.ts-b.ts);
+}
+/* how long the card sat in each stage, from the move events */
+function stageSpans(t, evs){
+  const moves = evs.filter(e=>e.kind==="moved");
+  const start = evs.find(e=>e.kind==="created")?.ts ?? t.createdAt ?? (moves[0]?.ts);
+  if(start==null) return [];
+  const end = t.closedAt || Date.now();
+  const spans=[]; let at=start, stage=evs.find(e=>e.kind==="created")?.to || moves[0]?.from || t.stage;
+  moves.forEach(m=>{ spans.push({stage, ms:Math.max(0,m.ts-at)}); at=m.ts; stage=m.to; });
+  spans.push({stage, ms:Math.max(0,end-at)});
+  const merged={};                                   // a stage revisited adds up
+  spans.forEach(s=>{ merged[s.stage]=(merged[s.stage]||0)+s.ms; });
+  return Object.entries(merged).map(([stage,ms])=>({stage,ms})).filter(s=>s.ms>0);
+}
+function evLine(e){
+  const who = U(e.actor)?.name || "Someone";
+  const b = s => `<b style="color:var(--ink)">${esc(s??"—")}</b>`;
+  switch(e.kind){
+    case "created":  return `${esc(who)} created this task in ${b(e.to)}`;
+    case "moved":    return `${esc(who)} moved it ${b(e.from)} → ${b(e.to)}`;
+    case "assigned": return `${esc(who)} reassigned it ${e.from?`from ${b(e.from)} `:""}to ${b(e.to)}`;
+    case "priority": return `${esc(who)} changed priority ${b(e.from)} → ${b(e.to)}`;
+    case "due":      return `${esc(who)} ${e.to?`set the due date to ${b(fmtDate(e.to))}`:"removed the due date"}`;
+    case "renamed":  return `${esc(who)} renamed it from ${b(e.from)}`;
+    case "edited":   return `${esc(who)} edited the notes`;
+    case "done":     return `${esc(who)} marked it done`;
+    case "reopened": return `${esc(who)} reopened it`;
+    case "comment":  return `${esc(who)} added a note`;
+    default:         return `${esc(who)} made a change`;
+  }
+}
+function timelineHTML(t, evs, canComment){
+  const created = evs.find(e=>e.kind==="created")?.ts || t.createdAt;
+  const spans = stageSpans(t, evs);
+  const total = spans.reduce((a,s)=>a+s.ms,0) || 1;
+  const cycle = t.startedAt ? ((t.closedAt||Date.now()) - t.startedAt) : null;
+  return `
+  <div class="tl-sum">
+    <div class="b"><div class="k">Created</div><div class="v">${created?esc(fmtWhen(created)):"—"}</div></div>
+    <div class="b"><div class="k">Started</div><div class="v">${t.startedAt?esc(fmtWhen(t.startedAt)):"Not started yet"}</div></div>
+    <div class="b"><div class="k">Closed</div><div class="v">${t.closedAt?esc(fmtWhen(t.closedAt)):"Still open"}</div></div>
+    <div class="b"><div class="k">${t.closedAt?"Start → close":"Open for"}</div><div class="v">${cycle!=null?esc(fmtDur(cycle)):"—"}</div></div>
+    <div class="b"><div class="k">Age</div><div class="v">${created?esc(fmtDur((t.closedAt||Date.now())-created)):"—"}</div></div>
+  </div>
+  ${spans.length?`
+  <div class="tl-bars">${spans.map((s,i)=>`<i style="width:${(s.ms/total*100).toFixed(2)}%;background:var(${STAGE_COLORS[i%STAGE_COLORS.length]})" title="${esc(s.stage)} — ${esc(fmtDur(s.ms))}"></i>`).join("")}</div>
+  <div class="tl-key">${spans.map((s,i)=>`<span><i class="sw" style="background:var(${STAGE_COLORS[i%STAGE_COLORS.length]})"></i>${esc(s.stage)} · <b style="color:var(--ink2)">${esc(fmtDur(s.ms))}</b></span>`).join("")}</div>`:""}
+  <div class="tl-list">
+    ${evs.map(e=>`<div class="tl-row k-${esc(e.kind)}"><span class="dot"></span>
+      <span>${evLine(e)}</span><span class="when">${esc(fmtWhen(e.ts))}</span>
+      ${e.kind==="comment"&&e.note?`<div class="said">${esc(e.note)}</div>`:""}
+    </div>`).join("")}
+  </div>
+  ${canComment?`<div class="tl-add">
+    <input id="tlNote" maxlength="400" placeholder="Add a progress note…">
+    <button class="btn sm" id="tlAdd" type="button">Add note</button></div>`:""}`;
+}
+/* Fills a host element with the timeline, and keeps the comment box working. */
+async function mountTimeline(hostSel, t, canComment){
+  const host = $(hostSel); if(!host) return;
+  host.innerHTML = `<div class="tl-wrap"><div style="font-size:12px;color:var(--muted)">Loading history…</div></div>`;
+  let evs;
+  try { evs = await loadTaskEvents(t.id); }
+  catch(err){
+    console.warn("Task history unavailable:", err.message||err);
+    host.innerHTML = `<div class="tl-wrap"><div style="font-size:12.5px;color:var(--muted)">
+      Task history is not switched on yet — run <code>TRACKER-UPDATE-03.sql</code> in Supabase.</div></div>`;
+    return;
+  }
+  const paint = () => {
+    host.innerHTML = `<div class="tl-wrap">
+      <div class="sec-h" style="margin:0 0 12px"><h2 style="font-size:14px">Timeline</h2>
+        <div class="spacer"></div><span style="font-size:11.5px;color:var(--muted)">${evs.length} event${evs.length===1?"":"s"}</span></div>
+      ${timelineHTML(t, evs, canComment)}</div>`;
+    const btn=$("#tlAdd"), inp=$("#tlNote");
+    if(!btn) return;
+    const send = async () => {
+      const note=inp.value.trim(); if(!note) return;
+      btn.disabled=true;
+      const row = await guard(()=>DB.ins("dat_task_events",
+        {task_id:t.id, actor:state.me.id, kind:"comment", note}));
+      btn.disabled=false;
+      if(!row) return;
+      evs.push(mapTEv(row)); inp.value=""; paint(); toast("Note added ✓");
+    };
+    btn.addEventListener("click", send);
+    inp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); send(); } });
+  };
+  paint();
+}
+
 /* ================= modals ================= */
 function closeModal(){ $("#overlayHost").innerHTML=""; }
 function modal(html){ $("#overlayHost").innerHTML=`<div class="overlay" id="ovl">${html}</div>`;
@@ -1498,7 +1846,7 @@ function openTaskModal(taskId, preset={}){
   const pipeId = t?.pipe || preset.pipe || state.pipe || pipes[0]?.id;
   const pipe = PIPES.find(p=>p.id===pipeId) || pipes[0];
   const people = assignableUsers(me);
-  modal(`<div class="modal">
+  modal(`<div class="modal${t?" wide":""}">
     <h3>${t?"Edit task":"New task"}</h3>
     <div class="msub">${t?"Update details, move stage, or reassign.":"Create a task card on a pipeline."}</div>
     <form id="taskForm" class="f-grid">
@@ -1528,7 +1876,9 @@ function openTaskModal(taskId, preset={}){
         <button class="btn primary" type="submit">${t?"Save changes":"Create task"}</button>
       </div>
     </form>
+    <div id="tlHost"></div>
   </div>`);
+  if(t) mountTimeline("#tlHost", t, true);
   $("#tPipe").addEventListener("change",e=>{
     const np=PIPES.find(p=>p.id===e.target.value);
     $("#tStage").innerHTML = np.stages.map(s=>`<option>${esc(s)}</option>`).join("");
@@ -1566,12 +1916,14 @@ function openTaskModal(taskId, preset={}){
 }
 function openTaskView(t){  // read-only view when no edit rights
   const p=PIPES.find(x=>x.id===t.pipe), u=U(t.assignee);
-  modal(`<div class="modal"><h3>${esc(t.title)}</h3>
+  modal(`<div class="modal wide"><h3>${esc(t.title)}</h3>
     <div class="msub">${esc(p?.name||"")} · ${esc(t.stage)}</div>
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">${prChip(t.pr)} ${dueChip(t)}</div>
     <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">${avatar(u,"sm")}<span style="font-size:13px">${esc(u.name)} — ${esc(titleOf(u))}</span></div>
     ${t.desc?`<p style="font-size:13.5px;color:var(--ink2);white-space:pre-wrap">${esc(t.desc)}</p>`:""}
+    <div id="tlHost"></div>
     <div class="m-actions"><div class="grow"></div><button class="btn" onclick="closeModal()">Close</button></div></div>`);
+  mountTimeline("#tlHost", t, true);   // you can always add a note to a task you can see
 }
 
 function openPipeModal(pipeId){
@@ -1840,6 +2192,7 @@ function openPerson(id){
   const me=state.me, u=U(id);
   const open=TASKS.filter(t=>t.assignee===id&&!t.done).sort((a,b)=>(a.due||"9").localeCompare(b.due||"9"));
   const logs=LOGS.filter(l=>l.user===id).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  const docs=docsOf(id).sort((a,b)=>b.ts-a.ts);
   const canSee = visibleUserIds(me).includes(id);
   const mgr = u.mgr?U(u.mgr):null;
   $("#drawer").innerHTML = `
@@ -1873,9 +2226,20 @@ function openPerson(id){
         <div><div class="lmeta">${relDay(l.date)} · ${esc(c.name)}</div>
         <div class="note">${esc(l.note)}</div></div></div>`;}).join("")
       :`<div style="color:var(--muted);font-size:13px">No log entries yet.</div>`}`
-    :`<div style="color:var(--muted);font-size:13px">You can see this person's profile, but their work detail is visible to their reporting line.</div>`}`;
+    :`<div style="color:var(--muted);font-size:13px">You can see this person's profile, but their work detail is visible to their reporting line.</div>`}
+    ${canSeeDocsOf(me,id)?`
+    <div class="sec-h"><h2 style="font-size:14px">Documents</h2>
+      <div class="spacer"></div><span style="font-size:12px;color:var(--muted)">${docs.length}</span></div>
+    ${docs.length?docs.slice(0,6).map(d=>`
+      <div class="log-entry"><div class="file-ic">${esc(docExt(d))}</div>
+        <div style="min-width:0"><div class="doc-name" data-drawerdoc="${d.id}">${esc(d.title||d.file||"Untitled")}</div>
+          <div class="lmeta">${relDay(d.date)} · ${esc(d.file)}${d.size?` · ${fmtBytes(d.size)}`:""}</div></div></div>`).join("")
+      :`<div style="color:var(--muted);font-size:13px">No documents attached.</div>`}`:""}`;
   $("#drawer").classList.add("open"); $("#drawerScrim").classList.add("open");
   $("#drawerX").addEventListener("click",closeDrawer);
+  $("#drawer").querySelectorAll("[data-drawerdoc]").forEach(el=>el.addEventListener("click",()=>{
+    const d = DOCS.find(x=>x.id===el.dataset.drawerdoc); if(!d) return;
+    const w = window.open("", "_blank"); openDoc(d, false, w); }));
   const ab=$("#assignBtn"); if(ab) ab.addEventListener("click",()=>{ closeDrawer(); openTaskModal(null,{assignee:id}); });
   const eb=$("#editAccBtn"); if(eb) eb.addEventListener("click",()=>{ closeDrawer(); openAccountModal(id); });
   $("#drawer").querySelectorAll("[data-opentask]").forEach(el=>el.addEventListener("click",()=>{ closeDrawer(); openTaskModal(el.dataset.opentask); }));
@@ -1903,6 +2267,7 @@ $("#drawerScrim").addEventListener("click",closeDrawer);
 $("#themeBtn").addEventListener("click",()=>{ state.theme=state.theme==="dark"?"light":"dark"; applyTheme(); });
 $("#quickAdd").addEventListener("click",()=>{
   if(state.view==="daily"){ const n=$("#qaNote"); if(n){ n.focus(); n.scrollIntoView({behavior:"smooth",block:"center"}); } else toast("Pick a person tab with write access"); }
+  else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
   else openTaskModal(null,{});
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });

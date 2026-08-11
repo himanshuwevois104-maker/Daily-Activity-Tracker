@@ -5,8 +5,12 @@ CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
 
 ## Before this site will work
 
-1. **Run the database schema.** `TRACKER-SETUP.sql` (kept outside this folder,
-   in `1-SQL-RUN-IN-SUPABASE`) must be run once in the Supabase SQL Editor.
+1. **Run the database schema.** `TRACKER-SETUP.sql`, then `TRACKER-UPDATE-01.sql`,
+   `TRACKER-UPDATE-02.sql` and `TRACKER-UPDATE-03.sql` (all kept outside this
+   folder, in `1-SQL-RUN-IN-SUPABASE`) must each be run once in the Supabase SQL
+   Editor. Update 02 adds document attachments and their private storage bucket;
+   update 03 adds the per-task timeline. Skip either and the app still works —
+   the Documents tab and the task timeline just say they aren't switched on.
 2. **Fill in `supabase-config.js`.** Paste your Supabase Project URL and the
    **anon public** key. Never the `service_role` key.
 3. In Supabase → Authentication → Providers → Email: **Confirm email OFF**,
