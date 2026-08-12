@@ -340,6 +340,34 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .toast{background:var(--ink); color:var(--page); padding:10px 16px; border-radius:11px; font-size:13px;
   font-weight:550; box-shadow:var(--shadow-lg); animation:pop .2s ease; display:flex; gap:8px; align-items:center}
 
+/* Group chat */
+.chat-wrap{display:grid; grid-template-columns:1fr 268px; gap:16px; align-items:start}
+@media(max-width:900px){.chat-wrap{grid-template-columns:1fr}}
+.chat-log{max-height:calc(100dvh - 340px); min-height:220px; overflow-y:auto; padding:4px 2px 8px;
+  display:flex; flex-direction:column; gap:2px}
+.chat-day{text-align:center; font-size:11px; color:var(--muted); font-weight:650; margin:14px 0 8px}
+.msg{display:flex; gap:10px; padding:5px 2px}
+.msg .who{font-size:12px; font-weight:700; color:var(--ink)}
+.msg .at{font-size:11px; color:var(--muted); margin-left:6px; font-weight:500}
+.msg .txt{font-size:13.5px; color:var(--ink); white-space:pre-wrap; word-break:break-word; margin-top:1px}
+.msg.mine .bub{background:color-mix(in srgb,var(--accent) 10%, var(--surface))}
+.msg .bub{border-radius:12px; padding:7px 11px; background:var(--surface-2); min-width:0; flex:1}
+.msg .del{opacity:0; transition:.15s; align-self:center}
+.msg:hover .del{opacity:1}
+.msg-file{display:inline-flex; align-items:center; gap:9px; margin-top:6px; padding:8px 11px;
+  border-radius:10px; border:1px solid var(--border); background:var(--surface); cursor:pointer; max-width:100%}
+.msg-file:hover{border-color:var(--accent)}
+.msg-file .nm{font-size:12.5px; font-weight:600; color:var(--ink); word-break:break-all}
+.msg-file .sz{font-size:11px; color:var(--muted)}
+.composer{display:flex; gap:8px; align-items:flex-end; border-top:1px solid var(--border); padding-top:12px; margin-top:6px}
+.composer textarea{flex:1; resize:none; min-height:40px; max-height:120px; padding:10px 12px;
+  border-radius:11px; border:1px solid var(--border); background:var(--surface); font-size:13.5px; font-family:inherit}
+.g-member{display:flex; align-items:center; gap:9px; padding:7px 2px; font-size:13px; border-bottom:1px solid var(--grid)}
+.g-member:last-child{border-bottom:none}
+.g-member .x{margin-left:auto; opacity:0; transition:.15s}
+.g-member:hover .x{opacity:1}
+.g-empty{text-align:center; color:var(--muted); font-size:13px; padding:34px 10px}
+
 /* Task timeline */
 .tl-wrap{margin-top:22px; border-top:1px solid var(--border); padding-top:16px}
 .tl-sum{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px}
@@ -475,7 +503,8 @@ const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{labe
 
 /* ---------------- live data, loaded from Supabase ---------------- */
 let DEPTS = [], ROLES = [], USERS = [], PIPES = [], TASKS = [],
-    LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [];
+    LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [],
+    GROUPS = [], GMEMS = [], MSGS = [];
 const U = id => USERS.find(u=>u.id===id);
 
 /* ---------------- Supabase ---------------- */
@@ -530,6 +559,12 @@ const mapReq = r => ({id:r.id, kind:r.kind, by:r.requested_by, on:(r.created_at|
   status:r.status, payload:r.payload||{}, note:r.note||"", decidedBy:r.decided_by,
   decidedOn:r.decided_on, reason:r.reason||""});
 const mapEv = e => ({id:e.id, user:e.user_id, type:e.type, text:e.text, ts:new Date(e.created_at).getTime()});
+const mapGroup = g => ({id:g.id, name:g.name, purpose:g.purpose||"", color:g.color||1,
+  active:g.active!==false, createdBy:g.created_by});
+const mapGMem = m => ({group:m.group_id, user:m.user_id, until:m.until||null, addedBy:m.added_by});
+const mapMsg = m => ({id:m.id, seq:Number(m.seq)||0, group:m.group_id, user:m.user_id,
+  body:m.body||"", path:m.path||null, file:m.file_name||"", mime:m.mime||"",
+  size:Number(m.size_bytes)||0, ts:new Date(m.created_at).getTime()});
 const mapDoc = d => ({id:d.id, user:d.user_id, title:d.title||"", note:d.note||"", path:d.path,
   file:d.file_name||"", mime:d.mime||"", size:Number(d.size_bytes)||0, date:d.log_date,
   ts:new Date(d.created_at).getTime()});
@@ -543,14 +578,28 @@ async function loadDocs(){
   catch(e){ DOCS_READY = false; console.warn("Documents unavailable:", e.message||e); return []; }
 }
 
+/* Groups arrive with TRACKER-UPDATE-06.sql; until it is run the tab says so
+   instead of the whole app failing to load. */
+let GROUPS_READY = true;
+async function loadGroups(){
+  try{
+    const [g,m,msg] = await Promise.all([
+      DB.sel("dat_groups"), DB.sel("dat_group_members"),
+      sb.from("dat_messages").select("*").order("seq",{ascending:false}).limit(500)
+        .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
+    ]);
+    GROUPS_READY = true; return [g,m,msg];
+  }catch(e){ GROUPS_READY = false; console.warn("Groups unavailable:", e.message||e); return [[],[],[]]; }
+}
+
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
-    loadDocs(),
+    loadDocs(), loadGroups(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -562,6 +611,9 @@ async function loadAll(){
   REQS = q.map(mapReq).sort((a,b)=>(b.on||"").localeCompare(a.on||""));
   EVENTS = e.map(mapEv);
   DOCS = dc.map(mapDoc).sort((a,b)=>b.ts-a.ts);
+  GROUPS = gr[0].map(mapGroup).sort((a,b)=>a.name.localeCompare(b.name));
+  GMEMS  = gr[1].map(mapGMem);
+  MSGS   = gr[2].map(mapMsg).sort((a,b)=>a.seq-b.seq);
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -575,6 +627,7 @@ const state = {
   theme: (matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
   logWho:null,   // person filter on daily-log view (managers+)
   docWho:null,   // person filter on documents view
+  group:null,    // group open on the groups view
   adminTab:"accounts",
 };
 
@@ -763,6 +816,7 @@ const IC = {
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
   inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5h4l1.4 2.4h6.2l1.4-2.4h4"/><path d="M5.6 5h12.8l2.1 8.5v3.9a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-3.9z"/></svg>',
+  chat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12.5c0 3.6-3.6 6.5-8 6.5a9.7 9.7 0 0 1-2.6-.35L4.5 20.5l1.2-3.4A6.9 6.9 0 0 1 4 12.5C4 8.9 7.6 6 12 6s8 2.9 8 6.5z"/><path d="M9 12h.01M12 12h.01M15 12h.01"/></svg>',
   bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16s-2-1.5-2-6.5z"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/></svg>',
   bellOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 0 0-8.4-5.5M5.2 5.2A6 6 0 0 0 6 8.5c0 5-2 6.5-2 6.5h12"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/><path d="M3 3l18 18"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19"/></svg>',
@@ -890,6 +944,24 @@ async function onTaskEventLive(payload){
   }
   showNotify(t?.title ? trunc(t.title) : "Task updated", evPlain(ev, who), ev.task);
 }
+/* A new message in a group you are in. Never your own, and never a group you
+   are only managing rather than a member of. */
+async function onMessageLive(payload){
+  const row = payload && payload.new; if(!row) return;
+  if(notifSeen.has("m"+row.id)) return;
+  notifSeen.add("m"+row.id);
+  const m = mapMsg(row);
+  if(!MSGS.some(x=>x.id===m.id)) MSGS.push(m);
+  const me = state.me;
+  const g = GROUPS.find(x=>x.id===m.group);
+  if(state.view==="groups") render();                 // the open chat updates live
+  else if(g && me && inGroup(m.group, me.id) && m.user!==me.id) render();  // refresh the unread badge
+  if(!me || m.user===me.id || !inGroup(m.group, me.id)) return;
+  const who = U(m.user)?.name || "Someone";
+  const body = m.body ? m.body : m.file ? `📎 ${m.file}` : "sent a message";
+  showNotify(`${who} · ${g?.name || "Group"}`, body, "grp-"+m.group);
+}
+
 /* Clicking the notification asks the service worker to focus this tab; it
    messages us back with the task to open. */
 function wireNotifBridge(){
@@ -899,6 +971,9 @@ function wireNotifBridge(){
     if(d.type !== "open-task") return;
     window.focus();
     if(!d.taskId || !state.me) return;
+    if(String(d.taskId).startsWith("grp-")){          // a group message notification
+      state.view = "groups"; state.group = String(d.taskId).slice(4); render(); return;
+    }
     const t = TASKS.find(x=>x.id===d.taskId);
     if(t){ state.view = "pipelines"; state.pipe = t.pipe; render(); openTaskModal(t.id); }
   });
@@ -912,9 +987,11 @@ const NAVS = [
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
 const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Pipelines", daily:"Daily Log",
-  documents:"Documents", team:"Team", admin:"Admin console", requests:"My requests"};
+  documents:"Documents", groups:"Groups", team:"Team", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
+  if(GROUPS_READY && (myGroups().length || canRunGroups(me)))
+    n.push({id:"groups", label:"Groups", ic:IC.chat, count:unreadTotal()});
   if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
   if(isAdmin(me)) n.push({id:"admin", label:"Admin", ic:IC.admin, count:pendingReqs().length});
   else if(canRequest(me)) n.push({id:"requests", label:"Requests", ic:IC.inbox,
@@ -1045,6 +1122,10 @@ function subscribeRealtime(){
      the signed-in person is allowed to read, so this cannot leak another
      branch's work even before shouldNotify() looks at it. */
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_task_events"}, onTaskEventLive);
+  /* group chat: realtime only delivers messages from groups you belong to */
+  chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_messages"}, onMessageLive);
+  ["dat_groups","dat_group_members"].forEach(t=>
+    chan.on("postgres_changes",{event:"*",schema:"public",table:t}, queueReload));
   chan.subscribe();
 }
 function queueReload(){
@@ -1070,13 +1151,15 @@ function render(){
   $("#viewDate").textContent = state.view==="admin" ? "Job roles, accounts and requests"
     : state.view==="requests" ? "Ask the Admin to create a job role or account"
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
+    : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : fmtDateLong(TODAY);
-  $("#quickAdd").classList.toggle("hidden", state.view==="admin"||state.view==="requests");
+  $("#quickAdd").classList.toggle("hidden",
+    state.view==="admin"||state.view==="requests"||state.view==="groups");
   $("#quickAddLbl").textContent = state.view==="daily" ? "Log activity"
     : state.view==="documents" ? "Add document" : "New task";
   applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, documents:renderDocs,
-    team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
+    groups:renderGroups, team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
 }
 
 /* ================= tooltip ================= */
@@ -1566,6 +1649,302 @@ function renderDocs(){
     if(await deleteDoc(d)){ toast("Document deleted"); renderDocs(); } else el.disabled=false;
   }));
   showPick();
+}
+
+/* ================= team groups =================
+   A group ignores the reporting hierarchy on purpose: a tender needs Legal, a
+   Field Manager and Accounts in one room, and those three sit in three
+   different branches. Membership decides everything, and the database enforces
+   it — see TRACKER-UPDATE-06.sql. */
+const GBUCKET = "dat-group-files";
+const canRunGroups = u => !!u && (isAdmin(u) || u.level==="ceo" || u.level==="vp");
+const memberActive = m => !m.until || m.until >= TODAY;
+const groupMembers = gid => GMEMS.filter(m=>m.group===gid);
+const inGroup = (gid, uid) => groupMembers(gid).some(m=>m.user===uid && memberActive(m));
+const myGroups = () => GROUPS.filter(g=>g.active && inGroup(g.id, state.me.id))
+  .sort((a,b)=>a.name.localeCompare(b.name));
+/* the people who run groups also need to see groups they are not in, to manage them */
+const manageableGroups = () => canRunGroups(state.me)
+  ? GROUPS.filter(g=>g.active).sort((a,b)=>a.name.localeCompare(b.name)) : myGroups();
+const msgsOf = gid => MSGS.filter(m=>m.group===gid).sort((a,b)=>a.seq-b.seq || a.ts-b.ts);
+
+/* unread = messages newer than the last one you saw, remembered per browser */
+function seenSeq(gid){ try{ return Number(localStorage.getItem("dat-seen-"+gid))||0; }catch(_){ return 0; } }
+function markSeen(gid){
+  const last = msgsOf(gid).slice(-1)[0]; if(!last) return;
+  try{ localStorage.setItem("dat-seen-"+gid, String(last.seq)); }catch(_){}
+}
+const unreadIn = gid => msgsOf(gid).filter(m=>m.seq > seenSeq(gid) && m.user !== state.me.id).length;
+const unreadTotal = () => myGroups().reduce((n,g)=>n+unreadIn(g.id), 0);
+
+async function sendMessage(gid, body, file){
+  const me = state.me;
+  let extra = {};
+  if(file){
+    if(file.size > DOC_MAX){ toast(`That file is ${fmtBytes(file.size)} — the limit is 25 MB.`); return null; }
+    const safe = file.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+    const path = `${gid}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safe}`;
+    const {error} = await sb.storage.from(GBUCKET)
+      .upload(path, file, {contentType:file.type||"application/octet-stream", upsert:false});
+    if(error){
+      console.error(error);
+      toast(/bucket not found/i.test(error.message||"")
+        ? "Group file storage is not set up — run TRACKER-UPDATE-06.sql."
+        : (error.message||"Could not attach that file."));
+      return null;
+    }
+    extra = {path, file_name:file.name, mime:file.type||"", size_bytes:file.size};
+  }
+  const row = await guard(()=>DB.ins("dat_messages",{group_id:gid, user_id:me.id, body:body||"", ...extra}));
+  if(!row && extra.path) await sb.storage.from(GBUCKET).remove([extra.path]).catch(()=>{});
+  return row;
+}
+async function openGroupFile(m, win){
+  const {data,error} = await sb.storage.from(GBUCKET).createSignedUrl(m.path, 120, {download:m.file||true});
+  if(error||!data){ if(win) win.close(); console.error(error);
+    toast("Could not open that file."); return; }
+  if(win) win.location.href = data.signedUrl; else window.open(data.signedUrl,"_blank","noopener");
+}
+
+function renderGroups(){
+  const me = state.me;
+  const list = manageableGroups();
+  if(!list.some(g=>g.id===state.group)) state.group = myGroups()[0]?.id || list[0]?.id || null;
+  const g = list.find(x=>x.id===state.group) || null;
+  const iAmIn = g ? inGroup(g.id, me.id) : false;
+  const mems = g ? groupMembers(g.id) : [];
+  const msgs = g && iAmIn ? msgsOf(g.id) : [];
+  let picked = null;
+
+  $("#view").innerHTML = `
+  ${!GROUPS_READY?`<div class="card card-pad" style="margin-bottom:18px;border-color:var(--critical)">
+    <b>Groups are not switched on yet.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:5px">Run <code>TRACKER-UPDATE-06.sql</code>
+    in the Supabase SQL Editor, then reload this page.</div></div>`:""}
+
+  <div class="pipe-tabs">
+    ${list.map(x=>{ const n=inGroup(x.id,me.id)?unreadIn(x.id):0;
+      return `<button class="pipe-tab ${x.id===state.group?"active":""}" data-group="${x.id}">
+        <span class="pdot" style="background:var(--s${x.color})"></span>${esc(x.name)}
+        ${n?`<span class="cnt">${n}</span>`:""}
+        ${inGroup(x.id,me.id)?"":`<span style="font-size:10.5px;color:var(--muted)">not a member</span>`}</button>`;}).join("")}
+    ${canRunGroups(me)?`<button class="btn sm" id="newGroup">＋ New group</button>`:""}
+  </div>
+
+  ${!g?`<div class="card card-pad g-empty">
+      ${canRunGroups(me)?"No groups yet. Create the first one — a tender, a launch, a site rollout.":"You are not in any group yet. An Admin, the CEO or a VP can add you to one."}
+    </div>`:`
+  <div class="chat-wrap">
+    <div class="card card-pad" style="display:flex;flex-direction:column">
+      <div class="card-head" style="margin-bottom:8px"><div>
+        <h3>${esc(g.name)}</h3>
+        <div class="sub">${esc(g.purpose||"")}${g.purpose?" · ":""}${mems.filter(memberActive).length} member${mems.filter(memberActive).length===1?"":"s"}</div></div>
+        <div class="spacer"></div>
+        ${canRunGroups(me)?`<button class="mini-btn" id="editGroup">Settings</button>`:""}</div>
+
+      ${!iAmIn?`<div class="g-empty">
+          You manage this group but you are not in it, so its messages are not yours to read.<br>
+          <span style="font-size:12px">Add yourself as a member if you need to take part.</span>
+        </div>`:`
+      <div class="chat-log" id="chatLog">
+        ${msgs.length?msgs.map((m,i)=>{
+          const u=U(m.user), mine=m.user===me.id;
+          const prev=msgs[i-1];
+          const newDay = !prev || iso(new Date(prev.ts))!==iso(new Date(m.ts));
+          return `${newDay?`<div class="chat-day">${relDay(iso(new Date(m.ts)))}</div>`:""}
+            <div class="msg ${mine?"mine":""}">
+              ${avatar(u,"sm")}
+              <div class="bub">
+                <div><span class="who">${esc(mine?"You":(u?.name||"Someone"))}</span><span class="at">${new Date(m.ts).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit",hour12:true})}</span></div>
+                ${m.body?`<div class="txt">${esc(m.body)}</div>`:""}
+                ${m.path?`<div class="msg-file" data-gfile="${m.id}">
+                  <span class="file-ic">${esc((m.file.split(".").pop()||"file").slice(0,4))}</span>
+                  <span style="min-width:0"><span class="nm">${esc(m.file)}</span><br>
+                  <span class="sz">${fmtBytes(m.size)} · click to download</span></span></div>`:""}
+              </div>
+              ${mine?`<button class="mini-btn del" data-delmsg="${m.id}" title="Delete" style="color:var(--critical)">✕</button>`:""}
+            </div>`;}).join("")
+        :`<div class="g-empty">No messages yet. Say something.</div>`}
+      </div>
+      <div id="gPickBox"></div>
+      <div class="composer">
+        <button class="icon-btn" id="gAttach" title="Attach a file">📎</button>
+        <input type="file" id="gFile" style="display:none">
+        <textarea id="gText" rows="1" placeholder="Write a message…  (Enter sends, Shift+Enter for a new line)"></textarea>
+        <button class="btn primary" id="gSend">Send</button>
+      </div>`}
+    </div>
+
+    <div class="card card-pad">
+      <div class="card-head" style="margin-bottom:6px"><div><h3 style="font-size:14px">Members</h3></div>
+        <div class="spacer"></div>
+        ${canRunGroups(me)?`<button class="mini-btn" id="addMember">＋ Add</button>`:""}</div>
+      ${mems.length?mems.map(m=>{ const u=U(m.user); if(!u) return "";
+        const expired=!memberActive(m);
+        return `<div class="g-member" style="${expired?"opacity:.5":""}">
+          ${avatar(u,"sm")}
+          <div style="min-width:0">
+            <div style="font-weight:600">${esc(u.name)}${m.user===me.id?" (you)":""}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div>
+            ${m.until?`<span class="chip ${expired?"overdue":"today"}" style="margin-top:3px">
+              ${expired?"expired":"guest"} · ${expired?"was until":"until"} ${esc(fmtDate(m.until))}</span>`:""}
+          </div>
+          ${canRunGroups(me)?`<button class="mini-btn x" data-delmem="${m.user}" title="Remove" style="color:var(--critical)">✕</button>`:""}
+        </div>`;}).join("")
+      :`<div style="color:var(--muted);font-size:13px">Nobody in this group yet.</div>`}
+      ${canRunGroups(me)?`<div style="font-size:11.5px;color:var(--muted);margin-top:10px">
+        Add someone with an <b>until</b> date and they drop out on their own the day after. Their messages stay.</div>`:""}
+    </div>
+  </div>`}`;
+
+  /* ---- wiring ---- */
+  document.querySelectorAll("[data-group]").forEach(b=>b.addEventListener("click",()=>{
+    markSeen(state.group); state.group=b.dataset.group; markSeen(state.group); render(); }));
+  const ng=$("#newGroup"); if(ng) ng.addEventListener("click",()=>openGroupModal(null));
+  const eg=$("#editGroup"); if(eg) eg.addEventListener("click",()=>openGroupModal(g.id));
+  const am=$("#addMember"); if(am) am.addEventListener("click",()=>openMemberModal(g.id));
+  document.querySelectorAll("[data-delmem]").forEach(b=>b.addEventListener("click", async ()=>{
+    const uid=b.dataset.delmem, u=U(uid);
+    if(await guard(()=>sb.from("dat_group_members").delete()
+        .eq("group_id",g.id).eq("user_id",uid).then(x=>{ if(x.error) throw x.error; return true; }))===null) return;
+    const i=GMEMS.findIndex(m=>m.group===g.id&&m.user===uid); if(i>-1) GMEMS.splice(i,1);
+    toast(`${u?.name||"They"} removed from ${g.name}`); render();
+  }));
+  document.querySelectorAll("[data-gfile]").forEach(el=>el.addEventListener("click",()=>{
+    const m=MSGS.find(x=>x.id===el.dataset.gfile); if(!m) return;
+    const w=window.open("","_blank"); openGroupFile(m, w); }));
+  document.querySelectorAll("[data-delmsg]").forEach(el=>el.addEventListener("click", async ()=>{
+    const m=MSGS.find(x=>x.id===el.dataset.delmsg); if(!m) return;
+    if(await guard(()=>DB.del("dat_messages", m.id).then(()=>true))===null) return;
+    if(m.path) await sb.storage.from(GBUCKET).remove([m.path]).catch(()=>{});
+    const i=MSGS.findIndex(x=>x.id===m.id); if(i>-1) MSGS.splice(i,1);
+    render();
+  }));
+
+  const log=$("#chatLog"); if(log) log.scrollTop = log.scrollHeight;
+  if(g && iAmIn) markSeen(g.id);
+
+  const fileIn=$("#gFile"), box=$("#gPickBox"), txt=$("#gText"), send=$("#gSend");
+  const at=$("#gAttach"); if(at) at.addEventListener("click",()=>fileIn.click());
+  function showPick(){
+    if(!box) return;
+    box.innerHTML = picked ? `<div class="doc-pick"><span>📎 ${esc(picked.name)}</span>
+      <span style="color:var(--muted)">${fmtBytes(picked.size)}</span>
+      <button class="mini-btn x" id="gClear">Remove</button></div>` : "";
+    const c=$("#gClear"); if(c) c.addEventListener("click",()=>{ picked=null; fileIn.value=""; showPick(); });
+  }
+  if(fileIn) fileIn.addEventListener("change",()=>{
+    const f=fileIn.files&&fileIn.files[0]; if(!f) return;
+    if(f.size>DOC_MAX){ toast(`That file is ${fmtBytes(f.size)} — the limit is 25 MB.`); return; }
+    picked=f; showPick();
+  });
+  async function doSend(){
+    if(!g || !txt) return;
+    const body=txt.value.trim();
+    if(!body && !picked){ return; }
+    send.disabled=true; send.textContent="Sending…";
+    const row = await sendMessage(g.id, body, picked);
+    send.disabled=false; send.textContent="Send";
+    if(!row) return;
+    MSGS.push(mapMsg(row)); picked=null; txt.value="";
+    markSeen(g.id); render();
+    const l=$("#chatLog"); if(l) l.scrollTop=l.scrollHeight;
+  }
+  if(send) send.addEventListener("click", doSend);
+  if(txt) txt.addEventListener("keydown", e=>{
+    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); doSend(); } });
+  showPick();
+}
+
+function openGroupModal(gid){
+  const me=state.me, g = gid ? GROUPS.find(x=>x.id===gid) : null;
+  if(!canRunGroups(me)){ toast("Only an Admin, the CEO or a VP can manage groups."); return; }
+  let color = g?.color || 1;
+  const startMems = new Set(g ? groupMembers(g.id).map(m=>m.user) : [me.id]);
+  modal(`<div class="modal wide">
+    <h3>${g?"Group settings":"New group"}</h3>
+    <div class="msub">${g?"Rename it, or retire it when the work is finished."
+      :"A room for one piece of work. Anyone you add can talk and share files in it, whatever team they are on."}</div>
+    <form id="grpForm" class="f-grid">
+      <div class="field"><label>Group name</label><input id="gName" required maxlength="48" value="${esc(g?.name||"")}" placeholder="e.g. Kota tender"></div>
+      <div class="field"><label>What it is for</label><input id="gPurpose" maxlength="120" value="${esc(g?.purpose||"")}" placeholder="e.g. Bid due 30th, all documents here"></div>
+      <div class="field"><label>Colour</label><div style="display:flex;gap:8px;flex-wrap:wrap" id="gColors">
+        ${[1,2,3,4,5,6,7,8].map(c=>`<button type="button" data-gc="${c}" style="width:26px;height:26px;border-radius:8px;background:var(--s${c});border:2.5px solid ${c===color?"var(--ink)":"transparent"}"></button>`).join("")}
+      </div></div>
+      ${!g?`<div class="field"><label>Members</label>
+        <div class="check-list" style="max-height:210px;overflow-y:auto">
+          ${liveUsers().sort((a,b)=>a.name.localeCompare(b.name)).map(u=>`<label>
+            <input type="checkbox" class="gMem" value="${u.id}" ${startMems.has(u.id)?"checked":""}>
+            ${esc(u.name)} <span style="color:var(--muted);font-size:11.5px">— ${esc(titleOf(u))}</span></label>`).join("")}
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px">You can add people with an expiry date afterwards, from the Members panel.</div></div>`:""}
+      ${g?`<div class="field"><div class="check-list"><label>
+        <input type="checkbox" id="gActive" ${g.active?"checked":""}> Group is active</label></div>
+        <div style="font-size:11.5px;color:var(--muted)">Retiring a group hides it for everyone. Nothing is deleted.</div></div>`:""}
+      <div class="m-actions"><div class="grow"></div>
+        <button type="button" class="btn" id="gCancel">Cancel</button>
+        <button class="btn primary" type="submit">${g?"Save":"Create group"}</button></div>
+    </form></div>`);
+  document.querySelectorAll("[data-gc]").forEach(b=>b.addEventListener("click",()=>{
+    color=+b.dataset.gc;
+    document.querySelectorAll("[data-gc]").forEach(x=>x.style.border="2.5px solid transparent");
+    b.style.border="2.5px solid var(--ink)"; }));
+  $("#gCancel").addEventListener("click",closeModal);
+  $("#grpForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const name=$("#gName").value.trim(); if(!name) return;
+    const purpose=$("#gPurpose").value.trim();
+    if(g){
+      const saved = await guard(()=>DB.upd("dat_groups", g.id,
+        {name, purpose, color, active:$("#gActive").checked}));
+      if(!saved) return;
+      Object.assign(g, mapGroup(saved)); toast("Group updated ✓");
+    } else {
+      const saved = await guard(()=>DB.ins("dat_groups",{name, purpose, color, created_by:me.id}));
+      if(!saved) return;
+      GROUPS.push(mapGroup(saved));
+      const picks=[...document.querySelectorAll(".gMem:checked")].map(c=>c.value);
+      if(picks.length){
+        const rows = picks.map(uid=>({group_id:saved.id, user_id:uid, added_by:me.id}));
+        const ok = await guard(()=>sb.from("dat_group_members").insert(rows).select()
+          .then(x=>{ if(x.error) throw x.error; return x.data||[]; }));
+        if(ok) ok.forEach(r=>GMEMS.push(mapGMem(r)));
+      }
+      state.group = saved.id;
+      toast(`“${name}” created ✓`);
+    }
+    closeModal(); render();
+  });
+}
+
+function openMemberModal(gid){
+  const me=state.me, g=GROUPS.find(x=>x.id===gid); if(!g) return;
+  const already = new Set(groupMembers(gid).map(m=>m.user));
+  const options = liveUsers().filter(u=>!already.has(u.id)).sort((a,b)=>a.name.localeCompare(b.name));
+  modal(`<div class="modal">
+    <h3>Add someone to ${esc(g.name)}</h3>
+    <div class="msub">Leave the date empty for a permanent member. Set one and they drop out automatically the day after — useful for someone helping on this piece of work only.</div>
+    <form id="memForm" class="f-grid">
+      <div class="field"><label>Person</label><select id="mWho" required>
+        ${options.length?options.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(titleOf(u))}</option>`).join("")
+          :`<option value="" disabled selected>Everyone is already in this group</option>`}</select></div>
+      <div class="field"><label>In the group until (optional)</label>
+        <input type="date" id="mUntil" min="${TODAY}"></div>
+      <div class="m-actions"><div class="grow"></div>
+        <button type="button" class="btn" id="mCancel">Cancel</button>
+        <button class="btn primary" type="submit" ${options.length?"":"disabled"}>Add to group</button></div>
+    </form></div>`);
+  $("#mCancel").addEventListener("click",closeModal);
+  $("#memForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const uid=$("#mWho").value; if(!uid) return;
+    const until=$("#mUntil").value||null;
+    const saved = await guard(()=>DB.ins("dat_group_members",
+      {group_id:gid, user_id:uid, until, added_by:me.id}));
+    if(!saved) return;
+    GMEMS.push(mapGMem(saved));
+    closeModal(); toast(`${U(uid)?.name||"They"} added${until?` until ${fmtDate(until)}`:""} ✓`); render();
+  });
 }
 
 /* ================= team (org chart) ================= */
@@ -2167,7 +2546,27 @@ function openPipeModal(pipeId){
       Object.assign(p, mapPipe(saved));
       toast(orphans.length ? `Pipeline updated ✓ — ${orphans.length} task(s) moved to “${stages[0]}”` : "Pipeline updated ✓");
     } else {
-      const saved = await guard(()=>DB.ins("dat_pipelines", {name, dept:$("#pDept").value, color, stages, created_by:me.id}));
+      /* Not wrapped in guard(): a pipeline that will not save is worth an exact
+         message, because "no permission" is almost never the real reason. */
+      let saved = null;
+      try{
+        saved = await DB.ins("dat_pipelines",
+          {name, dept:$("#pDept").value, color, stages, created_by:me.id});
+      }catch(err){
+        console.error("Pipeline create failed:", err);
+        const msg = (err && (err.message || err.error_description)) || String(err);
+        if(/row-level security/i.test(msg)){
+          openInfoModal("The pipeline could not be saved",
+            `The database saved it but then refused to hand it back, which happens when the
+             new pipeline has no owner recorded against it.<br><br>
+             Run <b>TRACKER-UPDATE-05.sql</b> in the Supabase SQL Editor — it makes the database
+             fill the owner in itself — then reload this page with <b>Ctrl+Shift+R</b> and try again.`);
+        } else {
+          openInfoModal("The pipeline could not be saved",
+            `The database refused it with:<br><br><code>${esc(msg)}</code>`);
+        }
+        return;
+      }
       if(!saved) return;
       PIPES.push(mapPipe(saved)); state.pipe=saved.id; state.view="pipelines";
       addEvent("move",`created pipeline “${name}”`);

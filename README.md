@@ -10,9 +10,11 @@ CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
    (all kept outside this folder, in `1-SQL-RUN-IN-SUPABASE`) must each be run
    once in the Supabase SQL Editor. Update 02 adds document attachments and
    their private storage bucket; update 03 adds the per-task timeline; update 04
-   stops two people in the same job role seeing each other's pipelines. Skip 02
-   or 03 and the app still works — the Documents tab and the task timeline just
-   say they aren't switched on.
+   stops two people in the same job role seeing each other's pipelines;
+   `TRACKER-UPDATE-05.sql` makes the database record who created a pipeline; and
+   `TRACKER-UPDATE-06.sql` adds team groups — chat, shared files and temporary
+   members. Skip 02, 03 or 06 and the app still works — the Documents tab, the
+   task timeline and the Groups tab just say they aren't switched on.
 2. **Fill in `supabase-config.js`.** Paste your Supabase Project URL and the
    **anon public** key. Never the `service_role` key.
 3. In Supabase → Authentication → Providers → Email: **Confirm email OFF**,
