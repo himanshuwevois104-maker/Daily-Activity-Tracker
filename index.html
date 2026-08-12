@@ -873,7 +873,7 @@ async function toggleNotifications(){
        appearing on screen.`);
     return;
   }
-  if(s === "on"){ setNotifPref(false); paintNotifBtn(); toast("Desktop notifications turned off"); return; }
+  if(s === "on"){ openNotifPanel(); return; }        // already on: show what is going on instead
 
   let perm = Notification.permission;
   if(perm !== "granted"){
@@ -899,6 +899,90 @@ async function showNotify(title, body, taskId, force){
     if(reg && reg.showNotification){ await reg.showNotification(title, opts); return true; }
   }catch(_){}
   try{ new Notification(title, opts); return true; }catch(_){ return false; }
+}
+
+/* Why is nothing appearing? This answers it instead of guessing. The clever bit
+   is the test: if the browser accepts a notification and it is still sitting in
+   the service worker's list afterwards, then the browser did its job and
+   anything missing from the screen is the operating system holding it back -
+   on Windows that is almost always Do not disturb. */
+async function openNotifPanel(){
+  const yes = t => `<span style="color:var(--good-text);font-weight:650">${t}</span>`;
+  const no  = t => `<span style="color:var(--critical);font-weight:650">${t}</span>`;
+  let sw = "not registered";
+  try{ const r = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+       sw = r ? (r.active ? "active" : "registering") : "not registered"; }catch(_){}
+  const live = /^SUBSCRIBED$/i.test(REALTIME_STATE);
+  const rows = [
+    ["This browser can show notifications", notifSupported()],
+    ["Served over https", window.isSecureContext !== false],
+    ["You allowed notifications", notifSupported() && Notification.permission === "granted"],
+    ["Switched on in the tracker", notifPref()],
+    ["Background helper (service worker)", sw === "active", sw],
+    ["Live connection to the database", live, REALTIME_STATE],
+  ];
+  modal(`<div class="modal">
+    <h3>Desktop notifications</h3>
+    <div class="msub">Everything below must be green. If it all is and you still see nothing on screen, press the test button — it can tell the difference between the browser failing and Windows hiding it.</div>
+    <div style="font-size:13px">
+      ${rows.map(([label, good, extra])=>`<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--grid)">
+        <span style="width:16px">${good?"✅":"❌"}</span>
+        <span style="flex:1">${label}</span>
+        <span style="color:var(--muted);font-size:11.5px">${extra?esc(String(extra)):(good?"":"no")}</span>
+      </div>`).join("")}
+    </div>
+    <div id="notifTestOut" style="margin-top:14px;font-size:13px"></div>
+    <div class="m-actions">
+      <button type="button" class="btn danger sm" id="notifOff">Turn off</button>
+      <div class="grow"></div>
+      <button type="button" class="btn" onclick="closeModal()">Close</button>
+      <button type="button" class="btn primary" id="notifTest">Send a test notification</button>
+    </div>
+  </div>`);
+  $("#notifOff").addEventListener("click",()=>{
+    setNotifPref(false); paintNotifBtn(); closeModal(); toast("Desktop notifications turned off"); });
+  $("#notifTest").addEventListener("click", async ()=>{
+    const out = $("#notifTestOut");
+    out.innerHTML = `<span style="color:var(--muted)">Sending…</span>`;
+    const tag = "dat-test-" + Date.now();
+    let handedOver = false;
+    try{
+      const reg = navigator.serviceWorker ? await navigator.serviceWorker.getRegistration() : null;
+      if(reg && reg.showNotification){
+        await reg.showNotification("WeVois Tracker — test", {
+          body:"If you can read this on your screen, notifications are working.",
+          icon:NOTIF_ICON, badge:NOTIF_ICON, tag, data:{taskId:null}});
+        await new Promise(r=>setTimeout(r,400));
+        if(typeof reg.getNotifications === "function"){
+          const live = await reg.getNotifications({tag});
+          handedOver = live.length > 0;
+          setTimeout(()=>reg.getNotifications({tag}).then(ns=>ns.forEach(n=>n.close())).catch(()=>{}), 6000);
+        } else {
+          handedOver = true;      // can't inspect it, but showNotification did not throw
+        }
+      } else {
+        new Notification("WeVois Tracker — test", {body:"Notifications are working.", icon:NOTIF_ICON, tag});
+        handedOver = true;
+      }
+    }catch(err){
+      out.innerHTML = `<div style="color:var(--critical)">The browser refused it: <code>${esc(err.message||String(err))}</code></div>`;
+      return;
+    }
+    out.innerHTML = handedOver
+      ? `<div style="background:var(--surface-2);border-radius:10px;padding:11px 13px">
+           <b>The browser accepted it.</b><br>
+           If a box appeared on screen — everything works, and the reason you saw nothing earlier is
+           one of: you were looking at the tracker tab at the time, or you made the change yourself.
+           Neither of those notifies you, by design.<br><br>
+           If <b>nothing appeared</b>, the browser handed it to Windows and Windows held it back.
+           That is <b>Do not disturb</b>. Right-click the bell in your system tray &rarr;
+           <b>Turn off do not disturb</b>, or Settings &rarr; System &rarr; Notifications, and check
+           <b>Google Chrome</b> is allowed there too. Then press this button again.
+         </div>`
+      : `<div style="color:var(--critical)">The browser said yes but then dropped it — that usually means
+         notifications are blocked for this site at the browser level. Click the padlock in the address
+         bar &rarr; Notifications &rarr; Allow, then reload.</div>`;
+  });
 }
 
 /* Who hears about a change: the people the actor reports up to.
@@ -1112,7 +1196,7 @@ async function logout(){
 }
 
 /* live refresh when a colleague changes something */
-let chan=null, reloadTimer=null;
+let chan=null, reloadTimer=null, REALTIME_STATE="not connected";
 function subscribeRealtime(){
   if(chan) return;
   chan = sb.channel("dat-live");
@@ -1126,7 +1210,7 @@ function subscribeRealtime(){
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_messages"}, onMessageLive);
   ["dat_groups","dat_group_members"].forEach(t=>
     chan.on("postgres_changes",{event:"*",schema:"public",table:t}, queueReload));
-  chan.subscribe();
+  chan.subscribe(status=>{ REALTIME_STATE = status || "unknown"; });
 }
 function queueReload(){
   clearTimeout(reloadTimer);
