@@ -506,8 +506,13 @@ async function guard(fn, okMsg){
 }
 
 /* ---------------- row mapping (DB <-> app shapes) ---------------- */
-const mapRole = r => ({id:r.id, name:r.name, dept:r.dept, level:r.level,
-  pipes:Array.isArray(r.pipes)?r.pipes:JSON.parse(r.pipes||"[]"), active:r.active});
+/* private_pipes arrives only once TRACKER-UPDATE-04.sql has been run; until
+   then the checkbox for it is not offered and never sent. */
+let PRIVPIPES_READY = false;
+const mapRole = r => { if("private_pipes" in r) PRIVPIPES_READY = true;
+  return {id:r.id, name:r.name, dept:r.dept, level:r.level,
+    pipes:Array.isArray(r.pipes)?r.pipes:JSON.parse(r.pipes||"[]"),
+    privatePipes: !!r.private_pipes, active:r.active}; };
 const mapUser = p => ({id:p.id, name:p.name, email:p.email||"", role:p.role_id, level:p.level,
   mgr:p.mgr_id, dept:p.dept, admin:!!p.admin, active:p.active!==false, c:p.color||1});
 const mapPipe = p => ({id:p.id, name:p.name, dept:p.dept, color:p.color,
@@ -621,14 +626,32 @@ function assignableUsers(v){
 const canAssignOthers = v => assignableUsers(v).length > 1;
 /* supervisory views (team workload table, team snapshot) */
 const canManage = v => v.level!=="member";
+/* A job role can be marked "pipelines stay private" (Admin -> Job roles).
+   For such a role, department-wide sharing is off in both directions — that is
+   what stops two Billing Managers, who sit in the same department, from
+   opening each other's boards. Mirrors dat_pipe_read in TRACKER-UPDATE-04.sql;
+   the database is what enforces it. */
+const rolePrivatePipes = u => !!roleOf(u)?.privatePipes;
+function chainUp(id){ const out=[]; let p=U(id)?.mgr, hops=0;
+  while(p && hops++ < 12){ out.push(p); p=U(p)?.mgr; } return out; }
 function visiblePipes(v){
   const extra = new Set(rolePipeIds(v));
   let base;
   if(v.level==="ceo") base = PIPES.slice();
   else {
-    const depts = new Set(USERS.filter(u=>visibleUserIds(v).includes(u.id)).map(u=>u.dept));
+    const mine = new Set(visibleUserIds(v));            // people whose work I oversee
+    const up   = new Set(chainUp(v.id));                // my manager, their manager, …
+    const iAmPrivate = rolePrivatePipes(v);
+    const depts = new Set(USERS.filter(u=>mine.has(u.id)).map(u=>u.dept));
     depts.add(v.dept);
-    base = PIPES.filter(p=>!p.dept || depts.has(p.dept) || p.createdBy===v.id);
+    base = PIPES.filter(p=>{
+      if(p.createdBy === v.id) return true;                       // mine
+      if(p.createdBy && mine.has(p.createdBy)) return true;       // my people's
+      const ownerPrivate = p.createdBy ? rolePrivatePipes(U(p.createdBy)) : false;
+      if(ownerPrivate) return up.has(p.createdBy);                // only their own reports
+      if(iAmPrivate) return false;                                // I opt out of dept sharing
+      return !p.dept || depts.has(p.dept);
+    });
   }
   PIPES.forEach(p=>{ if(extra.has(p.id) && !base.includes(p)) base.push(p); });
   /* Any pipeline holding work you can see is itself visible - otherwise a task
@@ -1650,7 +1673,7 @@ function adminRoles(){
     <div style="overflow-x:auto"><table class="simple">
       <thead><tr><th>Job role</th><th>Department</th><th>Default level</th><th>Pipeline access</th><th style="text-align:right">People</th><th></th></tr></thead>
       <tbody>${ROLES.map(r=>`<tr style="${r.active?"":"opacity:.5"}">
-        <td><b>${esc(r.name)}</b>${r.active?"":` <span class="chip">retired</span>`}</td>
+        <td><b>${esc(r.name)}</b>${r.active?"":` <span class="chip">retired</span>`}${r.privatePipes?` <span class="chip" title="People in this role cannot see each other's pipelines">🔒 private pipelines</span>`:""}</td>
         <td><span style="color:var(--ink2)">${esc(r.dept)}</span></td>
         <td>${LEVELS[r.level].label}</td>
         <td>${(r.pipes||[]).length?r.pipes.map(pid=>{const p=PIPES.find(x=>x.id===pid);
@@ -2277,6 +2300,10 @@ function openRoleModal(roleId, preset={}){
             <span style="width:9px;height:9px;border-radius:50%;background:var(--s${p.color});flex:none"></span>${esc(p.name)}</label>`).join("")}
         </div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Tick a pipeline to let anyone in this role see it across every team — how Accounts or Legal work company-wide. Leave all unticked and they only see their own team's work.</div></div>
+      ${PRIVPIPES_READY?`<div class="field"><label>Pipeline privacy</label>
+        <div class="check-list"><label>
+          <input type="checkbox" id="jPrivate" ${r?.privatePipes?"checked":""}> Pipelines stay private to each person</label></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Normally everyone in a department can see that department's pipelines. Tick this and they can't — two people holding this role won't see each other's boards. Their manager, VP and the CEO still do, and so do their own reports.</div></div>`:""}
       ${r?`<div class="field"><div class="check-list"><label>
         <input type="checkbox" id="jActive" ${r.active?"checked":""}> Role is active</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Retiring a role keeps the ${USERS.filter(x=>x.role===r.id).length} people already on it — it just stops appearing when creating new accounts.</div></div>`:""}
@@ -2291,6 +2318,7 @@ function openRoleModal(roleId, preset={}){
     if(ROLES.some(x=>x.name.toLowerCase()===name.toLowerCase() && x.id!==roleId)){ toast("That job role already exists."); return; }
     const sel=[...document.querySelectorAll(".jPipe:checked")].map(c=>c.value);
     const vals={name, dept:$("#jDept").value, level:$("#jLevel").value, pipes:sel};
+    if(PRIVPIPES_READY) vals.private_pipes = !!($("#jPrivate") && $("#jPrivate").checked);
     if(r){
       const saved = await guard(()=>DB.upd("dat_job_roles", r.id, {...vals, active:$("#jActive")?$("#jActive").checked:true}));
       if(!saved) return;
