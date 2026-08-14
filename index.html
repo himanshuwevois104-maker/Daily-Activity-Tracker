@@ -628,6 +628,7 @@ const state = {
   logWho:null,   // person filter on daily-log view (managers+)
   docWho:null,   // person filter on documents view
   group:null,    // group open on the groups view
+  period:"month",// window the team summary and the report cover
   adminTab:"accounts",
 };
 
@@ -1297,6 +1298,216 @@ function wireWeekChart(host, data){
   });
 }
 
+/* ================= team summary =================
+   One row per person instead of a wall of cards: what they finished, what is
+   still open, what is late, and whether they have gone quiet. Everything here
+   is worked out from data already loaded — no extra queries. */
+const PERIODS = {
+  week:  {label:"This week",    from:()=>iso(new Date(todayD.getTime()-(todayD.getDay()===0?6:todayD.getDay()-1)*DAY))},
+  month: {label:"This month",   from:()=>iso(new Date(todayD.getFullYear(), todayD.getMonth(), 1))},
+  d30:   {label:"Last 30 days", from:()=>dOff(-29)},
+  all:   {label:"All time",     from:()=>"0000-01-01"},
+};
+const periodFrom = () => (PERIODS[state.period]||PERIODS.month).from();
+const periodLabel = () => (PERIODS[state.period]||PERIODS.month).label;
+const inPeriod = d => !!d && d >= periodFrom() && d <= TODAY;
+
+function personStats(uid){
+  const from = periodFrom();
+  const mine = TASKS.filter(t=>t.assignee===uid);
+  const done = mine.filter(t=>t.done && inPeriod(t.doneOn||iso(new Date(t.closedAt||Date.now()))));
+  const open = mine.filter(t=>!t.done);
+  const overdue = open.filter(t=>t.due && t.due<TODAY);
+  const spans = done.map(t=>(t.closedAt&&t.startedAt)?(t.closedAt-t.startedAt):null).filter(x=>x!=null);
+  const avg = spans.length ? (spans.reduce((a,b)=>a+b,0)/spans.length/DAY) : null;
+  const logs = LOGS.filter(l=>l.user===uid && inPeriod(l.date));
+  const docs = DOCS.filter(d=>d.user===uid && inPeriod(d.date));
+  const lastDates = [...logs.map(l=>l.date), ...done.map(t=>t.doneOn).filter(Boolean), ...docs.map(d=>d.date)];
+  const last = lastDates.sort().slice(-1)[0] || null;
+  const quietDays = last ? Math.round((todayD - new Date(last+"T00:00:00"))/DAY) : null;
+  return {done:done.length, open:open.length, overdue:overdue.length, avg,
+          logs:logs.length, docs:docs.length, last, quietDays};
+}
+function personStatus(s){
+  if(s.overdue >= 3)                    return {cls:"overdue", text:`${s.overdue} overdue`};
+  if(s.quietDays === null)              return {cls:"", text:"No activity yet"};
+  if(s.quietDays >= 5)                  return {cls:"", text:`Quiet ${s.quietDays} days`};
+  if(s.overdue > 0)                     return {cls:"today", text:`${s.overdue} overdue`};
+  if(s.logs === 0 && state.period!=="week") return {cls:"today", text:"No log entries"};
+  return {cls:"done", text:"On track"};
+}
+/* everyone whose work I oversee, me excluded — the report and the table use this */
+const teamPeople = () => liveUsers()
+  .filter(u=>visibleUserIds(state.me).includes(u.id) && u.id!==state.me.id)
+  .sort((a,b)=>a.name.localeCompare(b.name));
+
+function teamSummaryCard(){
+  const people = teamPeople();
+  return `<div class="card card-pad" style="margin-top:16px">
+    <div class="card-head"><div><h3>Your team — ${esc(periodLabel().toLowerCase())}</h3>
+      <div class="sub">${people.length} ${people.length===1?"person":"people"} · click a name for their detail, daily log and timeline</div></div>
+      <div class="spacer"></div>
+      <select id="periodSel" style="padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12.5px">
+        ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>${v.label}</option>`).join("")}
+      </select>
+      <button class="btn sm" id="dlXlsx">⬇ Excel</button>
+      <button class="btn sm" id="dlPdf">⬇ PDF</button></div>
+    ${people.length?`<div style="overflow-x:auto"><table class="simple">
+      <thead><tr><th>Person</th><th style="text-align:right">Done</th><th style="text-align:right">Open</th>
+        <th style="text-align:right">Overdue</th><th style="text-align:right">Avg days</th>
+        <th style="text-align:right">Log entries</th><th style="text-align:right">Files</th><th>Status</th></tr></thead>
+      <tbody>${people.map(u=>{ const s=personStats(u.id), st=personStatus(s);
+        return `<tr class="click" data-person="${u.id}">
+          <td><div style="display:flex;align-items:center;gap:9px">${avatar(u,"sm")}
+            <div><div style="font-weight:650">${esc(u.name)}</div>
+              <div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div></div></div></td>
+          <td style="text-align:right;font-weight:650">${s.done}</td>
+          <td style="text-align:right">${s.open}</td>
+          <td style="text-align:right;${s.overdue?"color:var(--critical);font-weight:700":"color:var(--muted)"}">${s.overdue}</td>
+          <td style="text-align:right;color:var(--ink2)">${s.avg!=null?s.avg.toFixed(1):"—"}</td>
+          <td style="text-align:right;${s.logs?"":"color:var(--muted)"}">${s.logs}</td>
+          <td style="text-align:right;${s.docs?"":"color:var(--muted)"}">${s.docs}</td>
+          <td><span class="chip ${st.cls}">${esc(st.text)}</span></td></tr>`;}).join("")}
+      </tbody></table></div>`
+    :`<div style="color:var(--muted);font-size:13px">Nobody reports to you yet.</div>`}
+  </div>`;
+}
+function wireTeamSummary(){
+  const sel=$("#periodSel");
+  if(sel) sel.addEventListener("change",()=>{ state.period=sel.value; render(); });
+  const x=$("#dlXlsx"); if(x) x.addEventListener("click",()=>downloadReport("xlsx"));
+  const p=$("#dlPdf");  if(p) p.addEventListener("click",()=>downloadReport("pdf"));
+}
+
+/* ================= the downloadable report =================
+   Everyone below you, for the chosen period, in one file. Built here in the
+   browser from data already loaded, so it needs no server and no extra
+   permissions — you can only ever export what you can already see. */
+const XLSX_CDN = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+function loadXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src=XLSX_CDN;
+    s.onload=()=>window.XLSX?res(window.XLSX):rej(new Error("Spreadsheet library did not load"));
+    s.onerror=()=>rej(new Error("Could not reach the spreadsheet library — check the internet connection"));
+    document.head.appendChild(s);
+  });
+}
+function reportData(){
+  const from = periodFrom(), people = teamPeople();
+  const ids = new Set(people.map(p=>p.id));
+  const nameOf = id => U(id)?.name || "—";
+  const pipeName = pid => PIPES.find(p=>p.id===pid)?.name || "—";
+
+  const summary = people.map(u=>{ const s=personStats(u.id), st=personStatus(s);
+    return {"Name":u.name, "Job role":titleOf(u), "Department":u.dept, "Level":LEVELS[u.level].label,
+      "Reports to":u.mgr?nameOf(u.mgr):"—",
+      "Tasks completed":s.done, "Still open":s.open, "Overdue":s.overdue,
+      "Avg days to close": s.avg!=null ? Number(s.avg.toFixed(1)) : "",
+      "Daily log entries":s.logs, "Documents":s.docs,
+      "Last active": s.last || "never", "Status":st.text}; });
+
+  const tasks = TASKS.filter(t=>ids.has(t.assignee))
+    .filter(t=>t.done ? inPeriod(t.doneOn) : true)
+    .sort((a,b)=>nameOf(a.assignee).localeCompare(nameOf(b.assignee)) || (a.due||"9").localeCompare(b.due||"9"))
+    .map(t=>({"Person":nameOf(t.assignee), "Task":t.title, "Pipeline":pipeName(t.pipe), "Stage":t.stage,
+      "Priority":t.pr, "Due":t.due||"", "Done":t.done?"Yes":"No", "Completed on":t.doneOn||"",
+      "Started":t.startedAt?iso(new Date(t.startedAt)):"",
+      "Days to close": (t.closedAt&&t.startedAt) ? Number(((t.closedAt-t.startedAt)/DAY).toFixed(1)) : "",
+      "Created by":nameOf(t.createdBy)}));
+
+  const daily = LOGS.filter(l=>ids.has(l.user) && inPeriod(l.date))
+    .sort((a,b)=>b.date.localeCompare(a.date) || nameOf(a.user).localeCompare(nameOf(b.user)))
+    .map(l=>({"Date":l.date, "Person":nameOf(l.user), "Category":catOf(l.cat).name, "What they did":l.note}));
+
+  const docs = DOCS.filter(d=>ids.has(d.user) && inPeriod(d.date))
+    .sort((a,b)=>b.ts-a.ts)
+    .map(d=>({"Date":d.date, "Person":nameOf(d.user), "Title":d.title||"", "File":d.file,
+      "Size (KB)":Math.round(d.size/1024), "Note":d.note||""}));
+
+  /* day by day, so a quiet stretch is impossible to miss */
+  const days=[]; for(let d=from; d<=TODAY; d=iso(new Date(new Date(d+"T00:00:00").getTime()+DAY))){
+    if(days.length>400) break; days.push(d); }
+  const perDay = days.map(d=>{ const row={"Date":d};
+    people.forEach(u=>{
+      const done = TASKS.filter(t=>t.assignee===u.id && t.done && t.doneOn===d).length;
+      const lg   = LOGS.filter(l=>l.user===u.id && l.date===d).length;
+      row[u.name] = (done||lg) ? `${done} done / ${lg} log` : "";
+    });
+    return row; });
+
+  return {summary, tasks, daily, docs, perDay, people,
+          from, to:TODAY, label:periodLabel()};
+}
+async function downloadReport(kind){
+  const me = state.me;
+  const data = reportData();
+  if(!data.people.length){ toast("Nobody reports to you yet — nothing to report on."); return; }
+  const stamp = `${data.from}_to_${data.to}`;
+  const base  = `WeVois-team-report_${stamp}`;
+
+  if(kind === "xlsx"){
+    toast("Building the spreadsheet…");
+    let XLSX;
+    try{ XLSX = await loadXLSX(); }
+    catch(e){ openInfoModal("Could not build the Excel file", esc(e.message||String(e))); return; }
+    const wb = XLSX.utils.book_new();
+    const add = (rows, name) => {
+      if(!rows.length) rows = [{" ":"Nothing in this period"}];
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = Object.keys(rows[0]).map(k=>({wch:Math.min(42,
+        Math.max(k.length+2, ...rows.slice(0,200).map(r=>String(r[k]??"").length+2)))}));
+      ws["!autofilter"] = {ref: ws["!ref"]};
+      ws["!freeze"] = {xSplit:0, ySplit:1};
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    };
+    add(data.summary, "Summary");
+    add(data.tasks,   "Tasks");
+    add(data.daily,   "Daily log");
+    add(data.docs,    "Documents");
+    add(data.perDay,  "Day by day");
+    XLSX.writeFile(wb, base + ".xlsx");
+    toast("Report downloaded ✓");
+    return;
+  }
+
+  /* PDF: a clean printable page, then the browser's own Save as PDF */
+  const tbl = (title, rows, cols) => !rows.length ? "" : `
+    <h2>${esc(title)}</h2>
+    <table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${esc(String(r[c]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+    <title>${base}</title><style>
+      body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111;padding:26px;line-height:1.4}
+      h1{font-size:19px;margin-bottom:2px} .meta{font-size:12px;color:#666;margin-bottom:20px}
+      h2{font-size:14px;margin:22px 0 8px;padding-bottom:4px;border-bottom:2px solid #111}
+      table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px}
+      th{text-align:left;background:#f2f2ef;padding:5px 6px;border:1px solid #ddd;font-size:9.5px;
+        text-transform:uppercase;letter-spacing:.3px}
+      td{padding:4px 6px;border:1px solid #e6e6e6;vertical-align:top}
+      tr:nth-child(even) td{background:#fafafa}
+      @page{size:A4 landscape;margin:12mm}
+      @media print{h2{break-after:avoid} tr{break-inside:avoid}}
+    </style></head><body>
+    <h1>WeVois — team activity report</h1>
+    <div class="meta">${esc(data.label)} · ${esc(fmtDateLong(data.from))} to ${esc(fmtDateLong(data.to))}
+      &nbsp;|&nbsp; ${data.people.length} people &nbsp;|&nbsp; prepared for ${esc(me.name)} (${esc(titleOf(me))})
+      &nbsp;|&nbsp; generated ${esc(new Date().toLocaleString("en-IN"))}</div>
+    ${tbl("Summary — one row per person", data.summary,
+      ["Name","Job role","Department","Tasks completed","Still open","Overdue","Avg days to close","Daily log entries","Documents","Last active","Status"])}
+    ${tbl("Tasks", data.tasks, ["Person","Task","Pipeline","Stage","Priority","Due","Done","Completed on","Days to close"])}
+    ${tbl("Daily log", data.daily, ["Date","Person","Category","What they did"])}
+    ${tbl("Documents", data.docs, ["Date","Person","Title","File","Size (KB)"])}
+    </body></html>`;
+  const w = window.open("", "_blank");
+  if(!w){ toast("Allow pop-ups for this site to download the PDF."); return; }
+  w.document.write(html); w.document.close();
+  w.onload = () => { w.focus(); w.print(); };
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} }, 700);
+  toast("Choose “Save as PDF” in the print box");
+}
+
 /* ================= dashboard ================= */
 function kpis(){
   const ids = new Set(visibleUserIds(state.me));
@@ -1337,6 +1548,8 @@ function renderDashboard(){
     <div class="card tile"><div class="lbl">Log entries today</div><div class="val">${k.logsToday}</div><div class="delta ${k.dLogs>0?"up":k.dLogs<0?"down":""}">${k.dLogs===0?"same as yesterday":(k.dLogs>0?"▲ ":"▼ ")+Math.abs(k.dLogs)+" vs yesterday"}</div></div>
   </div>
 
+  ${team?teamSummaryCard():""}
+
   <div class="grid g-main-side" style="margin-top:16px">
     <div style="min-width:0; display:flex; flex-direction:column; gap:16px">
       <div class="card card-pad">
@@ -1371,21 +1584,9 @@ function renderDashboard(){
       </div>
     </div>
     <div style="min-width:0; display:flex; flex-direction:column; gap:16px">
-      ${team?`<div class="card card-pad">
-        <div class="card-head"><div><h3>Team snapshot</h3><div class="sub">Open · overdue · logs today</div></div></div>
-        <table class="simple"><thead><tr><th>Person</th><th style="text-align:right">Open</th><th style="text-align:right">Late</th><th style="text-align:right">Logs</th></tr></thead>
-        <tbody>${liveUsers().filter(u=>visibleUserIds(me).includes(u.id)&&u.id!==me.id).map(u=>{
-          const ut=TASKS.filter(t=>t.assignee===u.id&&!t.done);
-          const od=ut.filter(t=>t.due&&t.due<TODAY).length;
-          const lg=LOGS.filter(l=>l.user===u.id&&l.date===TODAY).length;
-          return `<tr class="click" data-person="${u.id}"><td><div style="display:flex;align-items:center;gap:8px">${avatar(u,"sm")}<div><div style="font-weight:600">${esc(u.name)}</div><div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div></div></div></td>
-            <td style="text-align:right">${ut.length}</td>
-            <td style="text-align:right;${od?'color:var(--critical);font-weight:700':''}">${od}</td>
-            <td style="text-align:right;${lg?'':'color:var(--muted)'}">${lg}</td></tr>`;}).join("")}
-        </tbody></table></div>`
-      : `<div class="card card-pad">
-        <div class="card-head"><div><h3>My day</h3><div class="sub">Due today & overdue</div></div></div>
-        ${myDayList()}</div>`}
+      <div class="card card-pad">
+        <div class="card-head"><div><h3>My day</h3><div class="sub">Due today &amp; overdue</div></div></div>
+        ${myDayList()}</div>
       <div class="card card-pad">
         <div class="card-head"><div><h3>Recent activity</h3><div class="sub">Latest updates in your scope</div></div></div>
         ${feed.length?feed.map(e=>{ const u=U(e.user); return `<div class="feed-item">
@@ -1397,6 +1598,7 @@ function renderDashboard(){
   </div>`;
 
   const wc = weekChart(); $("#weekChart").innerHTML = wc.svg; wireWeekChart($("#weekChart"), wc);
+  wireTeamSummary();
   wireCommon();
 }
 function myDayList(){
@@ -2844,9 +3046,11 @@ function openLogModal(logId){
 function openPerson(id){
   const me=state.me, u=U(id);
   const open=TASKS.filter(t=>t.assignee===id&&!t.done).sort((a,b)=>(a.due||"9").localeCompare(b.due||"9"));
-  const logs=LOGS.filter(l=>l.user===id).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  const logs=LOGS.filter(l=>l.user===id && inPeriod(l.date))
+    .sort((a,b)=>b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0,30);
   const docs=docsOf(id).sort((a,b)=>b.ts-a.ts);
   const canSee = visibleUserIds(me).includes(id);
+  const st = personStats(id), pst = personStatus(st);
   const mgr = u.mgr?U(u.mgr):null;
   $("#drawer").innerHTML = `
     <div style="display:flex;align-items:center;gap:13px;margin-bottom:4px">
@@ -2861,10 +3065,18 @@ function openPerson(id){
     ${u.email?`<div style="font-size:12.5px;color:var(--ink2);margin-bottom:14px">✉️ ${esc(u.email)}</div>`:""}
     ${isAdmin(me)?`<button class="btn" style="width:100%;justify-content:center;margin-bottom:14px" id="editAccBtn">⚙️ Edit account</button>`:""}
     ${canSee?`
-    <div class="grid" style="grid-template-columns:1fr 1fr 1fr; gap:9px; margin-bottom:18px">
-      <div class="card tile" style="padding:11px 13px"><div class="lbl">Open</div><div class="val" style="font-size:21px">${open.length}</div></div>
-      <div class="card tile" style="padding:11px 13px"><div class="lbl">Overdue</div><div class="val" style="font-size:21px;${open.filter(t=>t.due&&t.due<TODAY).length?'color:var(--critical)':''}">${open.filter(t=>t.due&&t.due<TODAY).length}</div></div>
-      <div class="card tile" style="padding:11px 13px"><div class="lbl">Logs today</div><div class="val" style="font-size:21px">${LOGS.filter(l=>l.user===id&&l.date===TODAY).length}</div></div>
+    <div style="font-size:11px;font-weight:750;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:7px">${esc(periodLabel())}</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; margin-bottom:16px">
+      <div class="card tile" style="padding:10px 12px"><div class="lbl">Done</div><div class="val" style="font-size:20px">${st.done}</div></div>
+      <div class="card tile" style="padding:10px 12px"><div class="lbl">Open</div><div class="val" style="font-size:20px">${st.open}</div></div>
+      <div class="card tile" style="padding:10px 12px"><div class="lbl">Overdue</div><div class="val" style="font-size:20px;${st.overdue?'color:var(--critical)':''}">${st.overdue}</div></div>
+      <div class="card tile" style="padding:10px 12px"><div class="lbl">Avg days</div><div class="val" style="font-size:20px">${st.avg!=null?st.avg.toFixed(1):"—"}</div></div>
+    </div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px">
+      <span class="chip ${pst.cls}">${esc(pst.text)}</span>
+      <span class="chip">${st.logs} log ${st.logs===1?"entry":"entries"}</span>
+      <span class="chip">${st.docs} file${st.docs===1?"":"s"}</span>
+      ${st.last?`<span class="chip">last active ${esc(relDay(st.last))}</span>`:""}
     </div>
     ${id!==me.id && assignableUsers(me).some(x=>x.id===id)?`<button class="btn primary" style="width:100%;justify-content:center;margin-bottom:18px" id="assignBtn">＋ Assign a task to ${esc(u.name.split(" ")[0])}</button>`:""}
     <div class="sec-h" style="margin-top:0"><h2 style="font-size:14px">Open tasks</h2></div>
@@ -2873,13 +3085,15 @@ function openPerson(id){
         <div class="sub">${esc(p?.name||"")} · ${esc(t.stage)}</div></div>
         <div class="right">${dueChip(t)}</div></div>`;}).join("")
       :`<div style="color:var(--muted);font-size:13px">No open tasks.</div>`}
-    <div class="sec-h"><h2 style="font-size:14px">Recent daily log</h2></div>
-    ${logs.length?logs.map(l=>{ const c=catOf(l.cat); return `
+    <div class="sec-h"><h2 style="font-size:14px">Daily log</h2>
+      <div class="spacer"></div><span style="font-size:11.5px;color:var(--muted)">${esc(periodLabel())}</span></div>
+    ${logs.length?`<div style="max-height:260px;overflow-y:auto">${logs.map(l=>{ const c=catOf(l.cat); return `
       <div class="log-entry"><div class="cat-ic">${c.ic}</div>
         <div><div class="lmeta">${relDay(l.date)} · ${esc(c.name)}</div>
-        <div class="note">${esc(l.note)}</div></div></div>`;}).join("")
-      :`<div style="color:var(--muted);font-size:13px">No log entries yet.</div>`}`
+        <div class="note">${esc(l.note)}</div></div></div>`;}).join("")}</div>`
+      :`<div style="color:var(--muted);font-size:13px">No log entries in this period.</div>`}`
     :`<div style="color:var(--muted);font-size:13px">You can see this person's profile, but their work detail is visible to their reporting line.</div>`}
+    ${canSee?`<div id="personTl"></div>`:""}
     ${canSeeDocsOf(me,id)?`
     <div class="sec-h"><h2 style="font-size:14px">Documents</h2>
       <div class="spacer"></div><span style="font-size:12px;color:var(--muted)">${docs.length}</span></div>
@@ -2889,6 +3103,7 @@ function openPerson(id){
           <div class="lmeta">${relDay(d.date)} · ${esc(d.file)}${d.size?` · ${fmtBytes(d.size)}`:""}</div></div></div>`).join("")
       :`<div style="color:var(--muted);font-size:13px">No documents attached.</div>`}`:""}`;
   $("#drawer").classList.add("open"); $("#drawerScrim").classList.add("open");
+  if(canSee) mountPersonTimeline("#personTl", id);
   $("#drawerX").addEventListener("click",closeDrawer);
   $("#drawer").querySelectorAll("[data-drawerdoc]").forEach(el=>el.addEventListener("click",()=>{
     const d = DOCS.find(x=>x.id===el.dataset.drawerdoc); if(!d) return;
@@ -2896,6 +3111,58 @@ function openPerson(id){
   const ab=$("#assignBtn"); if(ab) ab.addEventListener("click",()=>{ closeDrawer(); openTaskModal(null,{assignee:id}); });
   const eb=$("#editAccBtn"); if(eb) eb.addEventListener("click",()=>{ closeDrawer(); openAccountModal(id); });
   $("#drawer").querySelectorAll("[data-opentask]").forEach(el=>el.addEventListener("click",()=>{ closeDrawer(); openTaskModal(el.dataset.opentask); }));
+}
+/* One chronological story of a person's period: what they did to tasks, what
+   they wrote in the daily log, what they attached. The task half comes from the
+   history table, so it is the same record the task timeline shows. */
+async function mountPersonTimeline(sel, id){
+  const host = $(sel); if(!host) return;
+  host.innerHTML = `<div class="sec-h"><h2 style="font-size:14px">Timeline</h2></div>
+    <div style="font-size:12px;color:var(--muted)">Loading…</div>`;
+  let tev = [];
+  try{
+    const {data,error} = await sb.from("dat_task_events").select("*")
+      .eq("actor", id).order("seq",{ascending:false}).limit(120);
+    if(error) throw error;
+    tev = (data||[]).map(mapTEv);
+  }catch(err){ console.warn("Person timeline:", err.message||err); }
+
+  const from = periodFrom();
+  const items = [
+    ...tev.filter(e=>iso(new Date(e.ts))>=from).map(e=>({
+      ts:e.ts, kind:"task", icon:e.kind==="done"?"✅":e.kind==="comment"?"💬":e.kind==="created"?"✨":"➡️",
+      text:(()=>{ const t=TASKS.find(x=>x.id===e.task);
+        const name = t?trunc(t.title):"a task";
+        switch(e.kind){
+          case "created":  return `created “${name}”`;
+          case "moved":    return `moved “${name}” ${e.from||"—"} → ${e.to||"—"}`;
+          case "done":     return `completed “${name}”`;
+          case "reopened": return `reopened “${name}”`;
+          case "assigned": return `reassigned “${name}” to ${e.to||"someone"}`;
+          case "comment":  return `noted on “${name}”: ${e.note}`;
+          case "priority": return `changed priority on “${name}” to ${e.to}`;
+          case "due":      return `${e.to?`set “${name}” due ${fmtDate(e.to)}`:`removed the due date on “${name}”`}`;
+          default:         return `updated “${name}”`;
+        }})() })),
+    ...LOGS.filter(l=>l.user===id && inPeriod(l.date)).map(l=>({
+      ts:new Date(l.date+"T12:00:00").getTime(), kind:"log", icon:catOf(l.cat).ic,
+      text:`logged: ${l.note}` })),
+    ...DOCS.filter(d=>d.user===id && inPeriod(d.date)).map(d=>({
+      ts:d.ts, kind:"doc", icon:"📎", text:`attached ${d.file||d.title||"a document"}` })),
+  ].sort((a,b)=>b.ts-a.ts).slice(0,80);
+
+  host.innerHTML = `
+    <div class="sec-h"><h2 style="font-size:14px">Timeline</h2>
+      <div class="spacer"></div>
+      <span style="font-size:11.5px;color:var(--muted)">${items.length} entr${items.length===1?"y":"ies"} · ${esc(periodLabel().toLowerCase())}</span></div>
+    ${items.length?`<div style="max-height:300px;overflow-y:auto">
+      ${items.map(it=>`<div style="display:flex;gap:9px;padding:0 0 11px;font-size:12.5px">
+        <span style="flex:none;width:20px;text-align:center">${it.icon}</span>
+        <span style="min-width:0;flex:1">${esc(it.text)}
+          <span class="when">${esc(fmtWhen(it.ts))}</span></span>
+      </div>`).join("")}
+      </div>`
+    :`<div style="color:var(--muted);font-size:13px">Nothing recorded in this period.</div>`}`;
 }
 function closeDrawer(){ $("#drawer").classList.remove("open"); $("#drawerScrim").classList.remove("open"); }
 
