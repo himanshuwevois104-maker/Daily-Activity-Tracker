@@ -340,6 +340,34 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .toast{background:var(--ink); color:var(--page); padding:10px 16px; border-radius:11px; font-size:13px;
   font-weight:550; box-shadow:var(--shadow-lg); animation:pop .2s ease; display:flex; gap:8px; align-items:center}
 
+/* Right now + Needs attention */
+.now-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px}
+.now-cell{display:flex;gap:9px;align-items:flex-start;padding:10px 11px;border-radius:11px;
+  border:1px solid var(--border);background:var(--surface);cursor:pointer;text-align:left;transition:.15s;width:100%}
+.now-cell:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+.now-cell .nm{font-size:13px;font-weight:650;color:var(--ink)}
+.now-cell .st{font-size:11.5px;color:var(--ink2);display:flex;align-items:center;gap:5px;margin-top:1px}
+.now-cell .st .dot{width:7px;height:7px;border-radius:50%;background:var(--baseline);flex:none}
+.now-cell .st .dot.working{background:var(--good)}
+.now-cell .st .dot.paused{background:var(--warning)}
+.now-cell .st .dot.idle{background:var(--serious)}
+.now-cell .tk{font-size:11.5px;color:var(--ink);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.now-cell .ex{font-size:11px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-row{display:flex;gap:11px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--grid);cursor:pointer}
+.att-row:last-child{border-bottom:none}
+.att-row:hover{background:var(--surface-2)}
+.att-row .ic{font-size:15px;width:20px;text-align:center;flex:none}
+.att-row .t{font-size:13px;font-weight:600;color:var(--ink)}
+.att-row .s{font-size:11.5px;color:var(--muted);margin-top:1px}
+.att-row .sev{width:4px;height:26px;border-radius:99px;margin-left:auto;flex:none;background:var(--baseline)}
+.att-row .sev.s3{background:var(--critical)}
+.att-row .sev.s2{background:var(--warning)}
+.att-row .sev.s1{background:var(--serious)}
+.stage-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:650;
+  padding:2.5px 9px;border-radius:99px;background:var(--surface-2);color:var(--ink2)}
+.stage-pill.Pause{background:color-mix(in srgb,var(--warning) 20%, var(--surface));color:#8a6206}
+[data-theme="dark"] .stage-pill.Pause{color:var(--warning)}
+
 /* Group chat */
 .chat-wrap{display:grid; grid-template-columns:1fr 268px; gap:16px; align-items:start}
 @media(max-width:900px){.chat-wrap{grid-template-columns:1fr}}
@@ -388,6 +416,8 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .tl-row.k-created .dot{background:var(--accent)}
 .tl-row.k-done .dot{background:var(--good)}
 .tl-row.k-reopened .dot{background:var(--serious)}
+.tl-row.k-paused .dot{background:var(--warning)}
+.tl-row.k-resumed .dot{background:var(--good)}
 .tl-row.k-comment .dot{background:var(--s7,var(--accent))}
 .tl-row .when{color:var(--muted); font-size:11.5px; margin-left:6px; white-space:nowrap}
 .tl-row .said{background:var(--surface-2); border-radius:9px; padding:7px 10px; margin-top:4px;
@@ -498,6 +528,14 @@ const relDay = s => s===TODAY?"Today": s===dOff(-1)?"Yesterday": s===dOff(1)?"To
 const dueState = t => { if(t.done) return "done"; if(!t.due) return "none";
   return t.due<TODAY?"overdue": t.due===TODAY?"today":"later"; };
 
+/* ---------------- the four stages ----------------
+   Fixed for every board, deliberately. When "Pause" means the same thing on
+   every team, "how many of my people are stuck?" has a real answer. Enforced
+   by a check constraint in TRACKER-UPDATE-07.sql, not just here. */
+const STAGES = ["Start","In Progress","Pause","Done"];
+const STAGE_DONE = "Done", STAGE_PAUSE = "Pause", STAGE_WIP = "In Progress", STAGE_START = "Start";
+let PAUSE_REASONS = [];
+
 /* ---------------- org model ---------------- */
 const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{label:"Manager",rank:2}, member:{label:"Team Member",rank:1} };
 
@@ -548,6 +586,8 @@ const mapPipe = p => ({id:p.id, name:p.name, dept:p.dept, color:p.color,
   stages:Array.isArray(p.stages)?p.stages:JSON.parse(p.stages||"[]"), createdBy:p.created_by});
 const mapTask = t => ({id:t.id, pipe:t.pipeline_id, stage:t.stage, title:t.title, desc:t.description||"",
   assignee:t.assignee, pr:t.priority, due:t.due, done:!!t.done, doneOn:t.done_on, createdBy:t.created_by,
+  pauseReason:t.pause_reason||"", pausedMs:Number(t.paused_ms)||0,
+  pausedAt:t.paused_at?new Date(t.paused_at).getTime():null,
   createdAt:t.created_at?new Date(t.created_at).getTime():null,
   startedAt:t.started_at?new Date(t.started_at).getTime():null,
   closedAt:t.closed_at?new Date(t.closed_at).getTime():null});
@@ -593,13 +633,14 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
+    DB.sel("dat_pause_reasons").catch(()=>[]),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -614,6 +655,10 @@ async function loadAll(){
   GROUPS = gr[0].map(mapGroup).sort((a,b)=>a.name.localeCompare(b.name));
   GMEMS  = gr[1].map(mapGMem);
   MSGS   = gr[2].map(mapMsg).sort((a,b)=>a.seq-b.seq);
+  PAUSE_REASONS = (pz||[]).filter(r=>r.active!==false)
+    .sort((a,b)=>(a.ord||0)-(b.ord||0)).map(r=>r.name);
+  if(!PAUSE_REASONS.length) PAUSE_REASONS = ["Waiting on the client","Waiting on a colleague",
+    "Blocked - needs approval","Missing information","Reprioritised","Other"];
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -1007,6 +1052,8 @@ function evPlain(e, who){
     case "due":      return e.to ? `${who} set the due date to ${fmtDate(e.to)}` : `${who} removed the due date`;
     case "renamed":  return `${who} renamed it`;
     case "edited":   return `${who} edited the notes`;
+    case "paused":   return `${who} paused it${e.note?` — ${e.note}`:""}`;
+    case "resumed":  return `${who} resumed it`;
     case "done":     return `${who} marked it done`;
     case "reopened": return `${who} reopened it`;
     case "comment":  return `${who}: ${e.note}`;
@@ -1067,11 +1114,10 @@ function wireNotifBridge(){
 /* ================= shell ================= */
 const NAVS = [
   {id:"dashboard", label:"Dashboard", ic:IC.dash},
-  {id:"pipelines", label:"Pipelines", ic:IC.pipe},
-  {id:"daily",     label:"Daily Log", ic:IC.log},
+  {id:"pipelines", label:"Daily Tasks", ic:IC.pipe},
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
-const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Pipelines", daily:"Daily Log",
+const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
   documents:"Documents", groups:"Groups", team:"Team", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
@@ -1099,7 +1145,7 @@ function authShell(title, sub, body, foot){
 }
 function renderSignIn(){
   authShell("Sign in",
-    "Pipelines, daily activity and team hierarchy for the WeVois internal team.",
+    "Daily tasks, documents and team hierarchy for the WeVois internal team.",
     `<form id="signInForm" class="f-grid">
        <div class="field"><label>Work email</label><input id="siEmail" type="email" required autocomplete="username" placeholder="name@wevois.com"></div>
        <div class="field"><label>Password</label><input id="siPass" type="password" required autocomplete="current-password" placeholder="Your password"></div>
@@ -1237,11 +1283,11 @@ function render(){
     : state.view==="requests" ? "Ask the Admin to create a job role or account"
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
+    : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
     : fmtDateLong(TODAY);
   $("#quickAdd").classList.toggle("hidden",
     state.view==="admin"||state.view==="requests"||state.view==="groups");
-  $("#quickAddLbl").textContent = state.view==="daily" ? "Log activity"
-    : state.view==="documents" ? "Add document" : "New task";
+  $("#quickAddLbl").textContent = state.view==="documents" ? "Add document" : "New task";
   applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, documents:renderDocs,
     groups:renderGroups, team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
@@ -1320,21 +1366,122 @@ function personStats(uid){
   const overdue = open.filter(t=>t.due && t.due<TODAY);
   const spans = done.map(t=>(t.closedAt&&t.startedAt)?(t.closedAt-t.startedAt):null).filter(x=>x!=null);
   const avg = spans.length ? (spans.reduce((a,b)=>a+b,0)/spans.length/DAY) : null;
-  const logs = LOGS.filter(l=>l.user===uid && inPeriod(l.date));
   const docs = DOCS.filter(d=>d.user===uid && inPeriod(d.date));
-  const lastDates = [...logs.map(l=>l.date), ...done.map(t=>t.doneOn).filter(Boolean), ...docs.map(d=>d.date)];
+  const paused  = open.filter(t=>t.stage===STAGE_PAUSE);
+  const working = open.filter(t=>t.stage===STAGE_WIP);
+  const notStarted = open.filter(t=>t.stage===STAGE_START);
+  /* calendar time minus time the task sat paused - a week waiting on a client
+     is not a week of slow work, and the report should not read as if it were */
+  const workSpans = done.map(t=>(t.closedAt&&t.startedAt)
+      ? Math.max(0,(t.closedAt-t.startedAt)-(t.pausedMs||0)) : null).filter(x=>x!=null);
+  const avgWork = workSpans.length ? (workSpans.reduce((a,b)=>a+b,0)/workSpans.length/DAY) : null;
+  const lastDates = [...done.map(t=>t.doneOn).filter(Boolean), ...docs.map(d=>d.date),
+    ...mine.filter(t=>t.startedAt).map(t=>iso(new Date(t.startedAt)))];
   const last = lastDates.sort().slice(-1)[0] || null;
   const quietDays = last ? Math.round((todayD - new Date(last+"T00:00:00"))/DAY) : null;
-  return {done:done.length, open:open.length, overdue:overdue.length, avg,
-          logs:logs.length, docs:docs.length, last, quietDays};
+  return {done:done.length, open:open.length, overdue:overdue.length, avg, avgWork,
+          paused:paused.length, working:working.length, notStarted:notStarted.length,
+          pausedTasks:paused, workingTasks:working,
+          docs:docs.length, last, quietDays};
 }
 function personStatus(s){
-  if(s.overdue >= 3)                    return {cls:"overdue", text:`${s.overdue} overdue`};
-  if(s.quietDays === null)              return {cls:"", text:"No activity yet"};
-  if(s.quietDays >= 5)                  return {cls:"", text:`Quiet ${s.quietDays} days`};
-  if(s.overdue > 0)                     return {cls:"today", text:`${s.overdue} overdue`};
-  if(s.logs === 0 && state.period!=="week") return {cls:"today", text:"No log entries"};
+  if(s.overdue >= 3)         return {cls:"overdue", text:`${s.overdue} overdue`};
+  if(s.quietDays === null)   return {cls:"", text:"No activity yet"};
+  if(s.quietDays >= 5)       return {cls:"", text:`Quiet ${s.quietDays} days`};
+  if(s.overdue > 0)          return {cls:"today", text:`${s.overdue} overdue`};
+  if(s.paused > 0 && s.working === 0) return {cls:"today", text:`All ${s.paused} paused`};
+  if(s.working > 0)          return {cls:"done", text:"Working"};
   return {cls:"done", text:"On track"};
+}
+/* what someone is on right now, for the live strip */
+function nowState(uid){
+  const open = TASKS.filter(t=>t.assignee===uid && !t.done);
+  const wip = open.filter(t=>t.stage===STAGE_WIP);
+  const pz  = open.filter(t=>t.stage===STAGE_PAUSE);
+  if(wip.length) return {kind:"working", cls:"done", label:"Working", task:wip[0], extra:wip.length>1?`+${wip.length-1} more`:""};
+  if(pz.length)  return {kind:"paused",  cls:"today", label:"Paused",
+                         task:pz[0], extra:pz[0].pauseReason||"no reason given"};
+  if(open.length)return {kind:"idle",    cls:"", label:"Not started", task:open[0], extra:`${open.length} waiting`};
+  return {kind:"clear", cls:"", label:"Nothing open", task:null, extra:""};
+}
+/* how long a task has sat where it is */
+const daysInStage = t => {
+  const since = t.stage===STAGE_PAUSE ? (t.pausedAt || t.startedAt || t.createdAt)
+                                      : (t.startedAt || t.createdAt);
+  return since ? Math.floor((Date.now()-since)/DAY) : null;
+};
+/* Only the things a manager should act on. Everything healthy stays off screen -
+   that is the whole point of the redesign. */
+function attentionItems(){
+  const ids = new Set(teamPeople().map(p=>p.id));
+  const out = [];
+  TASKS.filter(t=>ids.has(t.assignee) && !t.done).forEach(t=>{
+    const who = U(t.assignee)?.name || "Someone";
+    const d = daysInStage(t);
+    if(t.due && t.due < TODAY)
+      /* overdue AND paused is the worst combination and the most actionable:
+         say both, or the manager cannot tell a slow task from a blocked one */
+      out.push({sev:3, who, task:t, icon:"⏰",
+        text:`Overdue since ${fmtDate(t.due)} — ${who}${t.stage===STAGE_PAUSE?", paused":""}`,
+        sub:t.stage===STAGE_PAUSE ? `${t.title} · ${t.pauseReason||"no reason given"}` : t.title});
+    else if(t.stage===STAGE_PAUSE && d!=null && d>=2)
+      out.push({sev:2, who, task:t, icon:"⏸",
+        text:`Paused ${d} day${d===1?"":"s"} — ${who}`, sub:`${t.title} · ${t.pauseReason||"no reason given"}`});
+    else if(t.stage===STAGE_WIP && d!=null && d>=7)
+      out.push({sev:1, who, task:t, icon:"🐌",
+        text:`In progress ${d} days with no move — ${who}`, sub:t.title});
+  });
+  teamPeople().forEach(u=>{
+    const s = personStats(u.id);
+    if(s.quietDays !== null && s.quietDays >= 5)
+      out.push({sev:2, who:u.name, person:u.id, icon:"💤",
+        text:`No activity for ${s.quietDays} days — ${u.name}`, sub:`${s.open} task${s.open===1?"":"s"} still open`});
+    if(s.quietDays === null && s.open > 0)
+      out.push({sev:2, who:u.name, person:u.id, icon:"💤",
+        text:`Has never started anything — ${u.name}`, sub:`${s.open} task${s.open===1?"":"s"} assigned`});
+  });
+  return out.sort((a,b)=>b.sev-a.sev || a.who.localeCompare(b.who));
+}
+
+function rightNowCard(){
+  const people = teamPeople();
+  if(!people.length) return "";
+  const rows = people.map(u=>({u, n:nowState(u.id)}));
+  const n = k => rows.filter(r=>r.n.kind===k).length;
+  return `<div class="card card-pad" style="margin-top:16px">
+    <div class="card-head"><div><h3>Right now</h3>
+      <div class="sub">${n("working")} working · ${n("paused")} paused · ${n("idle")} not started · ${n("clear")} nothing open</div></div></div>
+    <div class="now-grid">
+      ${rows.map(({u,n})=>`<button class="now-cell" data-person="${u.id}">
+        ${avatar(u,"sm")}
+        <div style="min-width:0;text-align:left">
+          <div class="nm">${esc(u.name.split(" ")[0])}</div>
+          <div class="st"><span class="dot ${n.kind}"></span>${esc(n.label)}</div>
+          ${n.task?`<div class="tk">${esc(trunc(n.task.title))}</div>`:""}
+          ${n.extra?`<div class="ex">${esc(n.extra)}</div>`:""}
+        </div></button>`).join("")}
+    </div></div>`;
+}
+function attentionCard(){
+  const items = attentionItems();
+  const people = teamPeople();
+  if(!people.length) return "";
+  if(!items.length) return `<div class="card card-pad" style="margin-top:16px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:20px">✅</span>
+      <div><b style="font-size:14px">Nothing needs you right now</b>
+      <div class="sub" style="margin:0">All ${people.length} people on track — nothing overdue, paused or stalled.</div></div>
+    </div></div>`;
+  const shown = items.slice(0,8);
+  return `<div class="card card-pad" style="margin-top:16px">
+    <div class="card-head"><div><h3>Needs attention</h3>
+      <div class="sub">${items.length} thing${items.length===1?"":"s"} — worst first. Everything else is fine.</div></div></div>
+    ${shown.map(it=>`<div class="att-row" ${it.task?`data-opentask="${it.task.id}"`:`data-person="${it.person}"`}>
+      <span class="ic">${it.icon}</span>
+      <div style="min-width:0"><div class="t">${esc(it.text)}</div><div class="s">${esc(it.sub)}</div></div>
+      <span class="sev s${it.sev}"></span></div>`).join("")}
+    ${items.length>shown.length?`<div style="font-size:12px;color:var(--muted);margin-top:9px">…and ${items.length-shown.length} more</div>`:""}
+  </div>`;
 }
 /* everyone whose work I oversee, me excluded — the report and the table use this */
 const teamPeople = () => liveUsers()
@@ -1354,8 +1501,8 @@ function teamSummaryCard(){
       <button class="btn sm" id="dlPdf">⬇ PDF</button></div>
     ${people.length?`<div style="overflow-x:auto"><table class="simple">
       <thead><tr><th>Person</th><th style="text-align:right">Done</th><th style="text-align:right">Open</th>
-        <th style="text-align:right">Overdue</th><th style="text-align:right">Avg days</th>
-        <th style="text-align:right">Log entries</th><th style="text-align:right">Files</th><th>Status</th></tr></thead>
+        <th style="text-align:right">Paused</th><th style="text-align:right">Overdue</th>
+        <th style="text-align:right">Avg days</th><th style="text-align:right">Files</th><th>Status</th></tr></thead>
       <tbody>${people.map(u=>{ const s=personStats(u.id), st=personStatus(s);
         return `<tr class="click" data-person="${u.id}">
           <td><div style="display:flex;align-items:center;gap:9px">${avatar(u,"sm")}
@@ -1363,9 +1510,9 @@ function teamSummaryCard(){
               <div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div></div></div></td>
           <td style="text-align:right;font-weight:650">${s.done}</td>
           <td style="text-align:right">${s.open}</td>
+          <td style="text-align:right;${s.paused?"color:var(--warning-text,#8a6206);font-weight:650":"color:var(--muted)"}">${s.paused}</td>
           <td style="text-align:right;${s.overdue?"color:var(--critical);font-weight:700":"color:var(--muted)"}">${s.overdue}</td>
-          <td style="text-align:right;color:var(--ink2)">${s.avg!=null?s.avg.toFixed(1):"—"}</td>
-          <td style="text-align:right;${s.logs?"":"color:var(--muted)"}">${s.logs}</td>
+          <td style="text-align:right;color:var(--ink2)" title="Working time — paused days excluded">${s.avgWork!=null?s.avgWork.toFixed(1):"—"}</td>
           <td style="text-align:right;${s.docs?"":"color:var(--muted)"}">${s.docs}</td>
           <td><span class="chip ${st.cls}">${esc(st.text)}</span></td></tr>`;}).join("")}
       </tbody></table></div>`
@@ -1403,9 +1550,11 @@ function reportData(){
   const summary = people.map(u=>{ const s=personStats(u.id), st=personStatus(s);
     return {"Name":u.name, "Job role":titleOf(u), "Department":u.dept, "Level":LEVELS[u.level].label,
       "Reports to":u.mgr?nameOf(u.mgr):"—",
-      "Tasks completed":s.done, "Still open":s.open, "Overdue":s.overdue,
-      "Avg days to close": s.avg!=null ? Number(s.avg.toFixed(1)) : "",
-      "Daily log entries":s.logs, "Documents":s.docs,
+      "Tasks completed":s.done, "Still open":s.open, "In progress":s.working,
+      "Paused":s.paused, "Not started":s.notStarted, "Overdue":s.overdue,
+      "Avg working days": s.avgWork!=null ? Number(s.avgWork.toFixed(1)) : "",
+      "Avg calendar days": s.avg!=null ? Number(s.avg.toFixed(1)) : "",
+      "Documents":s.docs,
       "Last active": s.last || "never", "Status":st.text}; });
 
   const tasks = TASKS.filter(t=>ids.has(t.assignee))
@@ -1414,12 +1563,21 @@ function reportData(){
     .map(t=>({"Person":nameOf(t.assignee), "Task":t.title, "Pipeline":pipeName(t.pipe), "Stage":t.stage,
       "Priority":t.pr, "Due":t.due||"", "Done":t.done?"Yes":"No", "Completed on":t.doneOn||"",
       "Started":t.startedAt?iso(new Date(t.startedAt)):"",
-      "Days to close": (t.closedAt&&t.startedAt) ? Number(((t.closedAt-t.startedAt)/DAY).toFixed(1)) : "",
+      "Calendar days": (t.closedAt&&t.startedAt) ? Number(((t.closedAt-t.startedAt)/DAY).toFixed(1)) : "",
+      "Paused days": t.pausedMs ? Number((t.pausedMs/DAY).toFixed(1)) : 0,
+      "Working days": (t.closedAt&&t.startedAt)
+        ? Number((Math.max(0,(t.closedAt-t.startedAt)-(t.pausedMs||0))/DAY).toFixed(1)) : "",
+      "Pause reason": t.stage===STAGE_PAUSE ? (t.pauseReason||"not given") : "",
       "Created by":nameOf(t.createdBy)}));
 
-  const daily = LOGS.filter(l=>ids.has(l.user) && inPeriod(l.date))
-    .sort((a,b)=>b.date.localeCompare(a.date) || nameOf(a.user).localeCompare(nameOf(b.user)))
-    .map(l=>({"Date":l.date, "Person":nameOf(l.user), "Category":catOf(l.cat).name, "What they did":l.note}));
+  /* everything currently stuck, so the report answers "what is blocked?" */
+  const blocked = TASKS.filter(t=>ids.has(t.assignee) && !t.done && t.stage===STAGE_PAUSE)
+    .sort((a,b)=>(daysInStage(b)||0)-(daysInStage(a)||0))
+    .map(t=>({"Person":nameOf(t.assignee), "Task":t.title, "Board":pipeName(t.pipe),
+      "Paused for (days)": daysInStage(t) ?? "", "Reason": t.pauseReason||"not given",
+      "Due":t.due||"", "Priority":t.pr}));
+
+  const daily = blocked;   // the "what is stuck" sheet replaced the daily log
 
   const docs = DOCS.filter(d=>ids.has(d.user) && inPeriod(d.date))
     .sort((a,b)=>b.ts-a.ts)
@@ -1431,9 +1589,9 @@ function reportData(){
     if(days.length>400) break; days.push(d); }
   const perDay = days.map(d=>{ const row={"Date":d};
     people.forEach(u=>{
-      const done = TASKS.filter(t=>t.assignee===u.id && t.done && t.doneOn===d).length;
-      const lg   = LOGS.filter(l=>l.user===u.id && l.date===d).length;
-      row[u.name] = (done||lg) ? `${done} done / ${lg} log` : "";
+      const done  = TASKS.filter(t=>t.assignee===u.id && t.done && t.doneOn===d).length;
+      const start = TASKS.filter(t=>t.assignee===u.id && t.startedAt && iso(new Date(t.startedAt))===d).length;
+      row[u.name] = (done||start) ? `${done} done / ${start} started` : "";
     });
     return row; });
 
@@ -1464,7 +1622,7 @@ async function downloadReport(kind){
     };
     add(data.summary, "Summary");
     add(data.tasks,   "Tasks");
-    add(data.daily,   "Daily log");
+    add(data.daily,   "Paused & blocked");
     add(data.docs,    "Documents");
     add(data.perDay,  "Day by day");
     XLSX.writeFile(wb, base + ".xlsx");
@@ -1495,9 +1653,9 @@ async function downloadReport(kind){
       &nbsp;|&nbsp; ${data.people.length} people &nbsp;|&nbsp; prepared for ${esc(me.name)} (${esc(titleOf(me))})
       &nbsp;|&nbsp; generated ${esc(new Date().toLocaleString("en-IN"))}</div>
     ${tbl("Summary — one row per person", data.summary,
-      ["Name","Job role","Department","Tasks completed","Still open","Overdue","Avg days to close","Daily log entries","Documents","Last active","Status"])}
-    ${tbl("Tasks", data.tasks, ["Person","Task","Pipeline","Stage","Priority","Due","Done","Completed on","Days to close"])}
-    ${tbl("Daily log", data.daily, ["Date","Person","Category","What they did"])}
+      ["Name","Job role","Department","Tasks completed","Still open","In progress","Paused","Not started","Overdue","Avg working days","Documents","Last active","Status"])}
+    ${tbl("Tasks", data.tasks, ["Person","Task","Pipeline","Stage","Priority","Due","Done","Completed on","Working days","Paused days"])}
+    ${tbl("Paused &amp; blocked right now", data.daily, ["Person","Task","Board","Paused for (days)","Reason","Due","Priority"])}
     ${tbl("Documents", data.docs, ["Date","Person","Title","File","Size (KB)"])}
     </body></html>`;
   const w = window.open("", "_blank");
@@ -1525,6 +1683,7 @@ function kpis(){
     overdue: open.filter(t=>t.due&&t.due<TODAY).length,
     doneWk, dDone: doneWk-donePrev,
     logsToday, dLogs: logsToday-logsYest,
+    paused: TASKS.filter(t=>ids.has(t.assignee)&&!t.done&&t.stage===STAGE_PAUSE).length,
   };
 }
 function renderDashboard(){
@@ -1538,16 +1697,18 @@ function renderDashboard(){
   $("#view").innerHTML = `
   <div style="margin-bottom:18px">
     <h2 style="font-size:20px">${greet}, ${esc(me.name.split(" ")[0])} 👋</h2>
-    <div style="color:var(--ink2); font-size:13.5px; margin-top:2px">${team?`You're viewing your ${me.level==="ceo"?"whole organisation":"team"} — ${visibleUserIds(me).length-1} people report up to you.`:"Here's your day at a glance."}</div>
+    <div style="color:var(--ink2); font-size:13.5px; margin-top:2px">${team?`${visibleUserIds(me).length-1} people report up to you. Below: what they are on right now, then only what needs you.`:"Here's your day at a glance."}</div>
   </div>
   <div class="grid g-kpis" id="kpiRow">
-    <div class="card tile"><div class="lbl">${scopeWord} open tasks</div><div class="val">${k.open}</div><div class="delta">across ${pipes.length} pipeline${pipes.length!==1?"s":""}</div></div>
+    <div class="card tile"><div class="lbl">${scopeWord} open tasks</div><div class="val">${k.open}</div><div class="delta">across ${pipes.length} board${pipes.length!==1?"s":""}</div></div>
     <div class="card tile"><div class="lbl">Due today</div><div class="val">${k.dueToday}</div><div class="delta">${k.dueToday? "needs attention today":"nothing due today"}</div></div>
     <div class="card tile"><div class="lbl">Overdue</div><div class="val" style="${k.overdue?'color:var(--critical)':''}">${k.overdue}</div><div class="delta ${k.overdue?"down":""}">${k.overdue?"clear these first":"all clear"}</div></div>
     <div class="card tile"><div class="lbl">Completed this week</div><div class="val">${k.doneWk}</div><div class="delta ${k.dDone>0?"up":k.dDone<0?"down":""}">${k.dDone===0?"same as last week":(k.dDone>0?"▲ ":"▼ ")+Math.abs(k.dDone)+" vs last week"}</div></div>
-    <div class="card tile"><div class="lbl">Log entries today</div><div class="val">${k.logsToday}</div><div class="delta ${k.dLogs>0?"up":k.dLogs<0?"down":""}">${k.dLogs===0?"same as yesterday":(k.dLogs>0?"▲ ":"▼ ")+Math.abs(k.dLogs)+" vs yesterday"}</div></div>
+    <div class="card tile"><div class="lbl">Paused</div><div class="val" style="${k.paused?'color:var(--warning)':''}">${k.paused}</div><div class="delta">${k.paused?"someone is blocked":"nothing stuck"}</div></div>
   </div>
 
+  ${team?rightNowCard():""}
+  ${team?attentionCard():""}
   ${team?teamSummaryCard():""}
 
   <div class="grid g-main-side" style="margin-top:16px">
@@ -1559,9 +1720,9 @@ function renderDashboard(){
           <span class="key"><span class="sw" style="background:var(--s2)"></span>Log entries</span></div></div>
         <div class="chart-wrap" id="weekChart"></div>
       </div>
-      <div class="card card-pad">
-        <div class="card-head"><div><h3>Pipelines</h3><div class="sub">Where work stands, stage by stage</div></div>
-          <div class="spacer"></div>${canCreatePipeline(me)?`<button class="btn sm" data-act="newPipe">＋ New pipeline</button>`:""}</div>
+      ${team?"":`<div class="card card-pad">
+        <div class="card-head"><div><h3>My boards</h3><div class="sub">Where your work stands, stage by stage</div></div>
+          <div class="spacer"></div>${canCreatePipeline(me)?`<button class="btn sm" data-act="newPipe">＋ New board</button>`:""}</div>
         <div style="display:flex; flex-direction:column; gap:15px">
           ${pipes.map(p=>{ const ts=visibleTasks(me).filter(t=>t.pipe===p.id);
             const openN=ts.filter(t=>!t.done).length;
@@ -1581,7 +1742,7 @@ function renderDashboard(){
                     <span class="sw o${Math.min(i+1,6)}" style="width:7px;height:7px;border-radius:2px;display:inline-block"></span>${esc(s)} <b style="color:var(--ink2)">${n}</b></span>`; }).join("")}
               </div></div>`; }).join("")}
         </div>
-      </div>
+      </div>`}
     </div>
     <div style="min-width:0; display:flex; flex-direction:column; gap:16px">
       <div class="card card-pad">
@@ -1614,17 +1775,17 @@ function myDayList(){
     </div>`;}).join("");
 }
 
-/* ================= pipelines (Kanban) ================= */
+/* ================= daily tasks (the board) ================= */
 function renderPipelines(){
   const me=state.me, pipes=visiblePipes(me);
   if(!pipes.length){
     $("#view").innerHTML = `<div class="card card-pad" style="text-align:center;padding:44px 24px">
       <div style="font-size:34px;margin-bottom:8px">\u{1F5C2}\uFE0F</div>
-      <h3 style="font-size:16px">No pipelines yet</h3>
+      <h3 style="font-size:16px">No task boards yet</h3>
       <div style="color:var(--ink2);font-size:13.5px;margin:6px auto 18px;max-width:430px">
-        A pipeline is a flow of stages work moves through &mdash; Lead &rarr; Contacted &rarr; Won for sales,
-        Assigned &rarr; In Progress &rarr; Done for operations. Create the first one and start adding tasks.</div>
-      <button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a pipeline</button>
+        A board holds daily tasks for one area of work, and every task moves through the same four stages:
+        Start &rarr; In Progress &rarr; Pause &rarr; Done. Create the first board and start adding tasks.</div>
+      <button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a task board</button>
     </div>`;
     wireCommon(); return; }
   if(!pipes.find(p=>p.id===state.pipe)) state.pipe=pipes[0].id;
@@ -1641,7 +1802,7 @@ function renderPipelines(){
     ${pipes.map(p=>`<button class="pipe-tab ${p.id===state.pipe?"active":""}" data-pipe="${p.id}">
       <span class="pdot" style="background:var(--s${p.color})"></span>${esc(p.name)}
       <span style="color:var(--muted);font-weight:600">${visibleTasks(me).filter(t=>t.pipe===p.id&&!t.done).length}</span></button>`).join("")}
-    ${canCreatePipeline(me)?`<button class="pipe-tab" data-act="newPipe" style="border-style:dashed">＋ New pipeline</button>`:""}
+    ${canCreatePipeline(me)?`<button class="pipe-tab" data-act="newPipe" style="border-style:dashed">＋ New board</button>`:""}
   </div>
   <div class="filters">
     <input type="search" id="fSearch" placeholder="Search tasks…" value="${esc(state.fSearch)}">
@@ -1652,7 +1813,7 @@ function renderPipelines(){
     <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink2)">
       <input type="checkbox" id="fDone" ${state.showDone?"checked":""}> Show done</label>
     <div style="margin-left:auto;display:flex;gap:8px">
-      ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit pipeline</button>`:""}
+      ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit board</button>`:""}
     </div>
   </div>
   <div class="board" id="board">
@@ -1675,6 +1836,7 @@ function taskCard(t,pipe){
   const u=U(t.assignee);
   return `<div class="tcard ${t.done?"done-card":""}" draggable="true" data-task="${t.id}" style="--pc:var(--s${pipe.color})">
     <div class="tt">${esc(t.title)}</div>
+    ${t.stage===STAGE_PAUSE?`<div style="font-size:11px;color:#8a6206;margin:3px 0 1px">⏸ ${esc(t.pauseReason||"no reason given")}</div>`:""}
     <div class="meta">${prChip(t.pr)} ${dueChip(t)} ${u?avatar(u,"sm"):""}</div>
   </div>`;
 }
@@ -1707,18 +1869,54 @@ function wireBoard(pipe){
     e.stopPropagation(); openTaskModal(null, {pipe:pipe.id, stage:b.dataset.addtask}); }));
   const ep=$('[data-act="editPipe"]'); if(ep) ep.addEventListener("click",()=>openPipeModal(pipe.id));
 }
-async function moveTask(t, stage){
-  const pipe=PIPES.find(p=>p.id===t.pipe);
-  const last = pipe.stages[pipe.stages.length-1];
-  const prev = {stage:t.stage, done:t.done, doneOn:t.doneOn};
-  const done = (stage===last);
+/* Pausing always asks why. A manager who can see "paused — waiting on the
+   client" can act; one who only sees "paused" has to go and ask. */
+function askPauseReason(taskTitle){
+  return new Promise(resolve=>{
+    modal(`<div class="modal">
+      <h3>Pausing “${esc(trunc(taskTitle))}”</h3>
+      <div class="msub">Why is it stopping? Your manager sees this, so they can unblock you without having to chase.</div>
+      <form id="pauseForm" class="f-grid">
+        <div class="field"><label>Reason</label><select id="pzWhy">
+          ${PAUSE_REASONS.map(r=>`<option>${esc(r)}</option>`).join("")}</select></div>
+        <div class="field"><label>Anything to add (optional)</label>
+          <input id="pzNote" maxlength="120" placeholder="e.g. chased them on Tuesday, no reply yet"></div>
+        <div class="m-actions"><div class="grow"></div>
+          <button type="button" class="btn" id="pzCancel">Cancel</button>
+          <button class="btn primary" type="submit">Pause the task</button></div>
+      </form></div>`);
+    let settled = false;
+    const done = v => { if(settled) return; settled = true; closeModal(); resolve(v); };
+    $("#pzCancel").addEventListener("click",()=>done(null));
+    $("#pauseForm").addEventListener("submit", e=>{
+      e.preventDefault();
+      const why = $("#pzWhy").value, note = $("#pzNote").value.trim();
+      done(note ? `${why} — ${note}` : why);
+    });
+  });
+}
+async function moveTask(t, stage, reasonGiven){
+  const prev = {stage:t.stage, done:t.done, doneOn:t.doneOn, pauseReason:t.pauseReason};
+  let reason = reasonGiven;
+  if(stage === STAGE_PAUSE && reason === undefined){
+    reason = await askPauseReason(t.title);
+    if(reason === null) return;                                   // they backed out
+  }
+  const done = (stage === STAGE_DONE);
   const doneOn = done ? (t.doneOn||TODAY) : null;
-  t.stage=stage; t.done=done; t.doneOn=doneOn; render();          // optimistic
-  const ok = await guard(()=>DB.upd("dat_tasks", t.id, {stage, done, done_on:doneOn}));
+  t.stage=stage; t.done=done; t.doneOn=doneOn;
+  if(stage===STAGE_PAUSE) t.pauseReason = reason||"";
+  render();                                                       // optimistic
+  const patch = {stage, done, done_on:doneOn};
+  if(stage === STAGE_PAUSE) patch.pause_reason = reason || null;
+  const ok = await guard(()=>DB.upd("dat_tasks", t.id, patch));
   if(ok===null){ Object.assign(t, prev); render(); return; }      // rejected: put it back
-  Object.assign(t, mapTask(ok));   // pick up started_at / closed_at the trigger just stamped
-  addEvent(done?"done":"move", done?`completed “${t.title}”`:`moved “${t.title}” to ${stage}`);
-  toast(done?`✓ “${trunc(t.title)}” completed`:`Moved to ${stage}`);
+  Object.assign(t, mapTask(ok));   // pick up started_at / closed_at / paused_ms
+  addEvent(done?"done":"move", done?`completed “${t.title}”`
+    : stage===STAGE_PAUSE ? `paused “${t.title}” — ${reason||"no reason given"}`
+    : `moved “${t.title}” to ${stage}`);
+  toast(done?`✓ “${trunc(t.title)}” completed`
+    : stage===STAGE_PAUSE ? "Paused — your manager can see why" : `Moved to ${stage}`);
 }
 const trunc = s => s.length>34?s.slice(0,34)+"…":s;
 
@@ -2382,7 +2580,7 @@ function adminRequests(){
 }
 function adminDepts(){
   return `<div class="card card-pad">
-    <div class="card-head"><div><h3>Departments</h3><div class="sub">Used to group job roles and to decide which team sees which pipeline</div></div></div>
+    <div class="card-head"><div><h3>Departments</h3><div class="sub">Used to group job roles and to decide which team sees which board</div></div></div>
     <form id="deptForm" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <input id="deptName" placeholder="New department name" maxlength="28" style="flex:1;min-width:190px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-size:13.5px">
       <button class="btn primary" type="submit">Add department</button></form>
@@ -2589,6 +2787,8 @@ function evLine(e){
     case "due":      return `${esc(who)} ${e.to?`set the due date to ${b(fmtDate(e.to))}`:"removed the due date"}`;
     case "renamed":  return `${esc(who)} renamed it from ${b(e.from)}`;
     case "edited":   return `${esc(who)} edited the notes`;
+    case "paused":   return `${esc(who)} paused it${e.note?` — ${b(e.note)}`:""}`;
+    case "resumed":  return `${esc(who)} resumed it`;
     case "done":     return `${esc(who)} marked it done`;
     case "reopened": return `${esc(who)} reopened it`;
     case "comment":  return `${esc(who)} added a note`;
@@ -2666,11 +2866,10 @@ function openTaskModal(taskId, preset={}){
   if(t && !canEditTask(me,t)){ openTaskView(t); return; }
   const pipes = visiblePipes(me);
   if(!pipes.length){
-    openInfoModal("You need a pipeline first",
-      `A task lives on a pipeline &mdash; a flow of stages like
-       Lead &rarr; Contacted &rarr; Won, or Assigned &rarr; In Progress &rarr; Done.
-       There aren't any yet.<br><br>` +
-      `Open <b>Pipelines</b> and create one, then come back and add tasks to it.`);
+    openInfoModal("You need a task board first",
+      `A task lives on a board and moves through Start &rarr; In Progress &rarr; Pause &rarr; Done.
+       There aren't any boards yet.<br><br>` +
+      `Open <b>Daily Tasks</b> and create one, then come back and add tasks to it.`);
     return;
   }
   const pipeId = t?.pipe || preset.pipe || state.pipe || pipes[0]?.id;
@@ -2678,14 +2877,14 @@ function openTaskModal(taskId, preset={}){
   const people = assignableUsers(me);
   modal(`<div class="modal${t?" wide":""}">
     <h3>${t?"Edit task":"New task"}</h3>
-    <div class="msub">${t?"Update details, move stage, or reassign.":"Create a task card on a pipeline."}</div>
+    <div class="msub">${t?"Update details, move stage, or reassign.":"Add a task to a board."}</div>
     <form id="taskForm" class="f-grid">
       <div class="field"><label>Title</label><input id="tTitle" required maxlength="120" value="${esc(t?.title||"")}" placeholder="e.g. Follow up with Kota South on revised pricing"></div>
       <div class="f-grid f-2">
-        <div class="field"><label>Pipeline</label><select id="tPipe">
+        <div class="field"><label>Board</label><select id="tPipe">
           ${pipes.map(p=>`<option value="${p.id}" ${p.id===pipeId?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
         <div class="field"><label>Stage</label><select id="tStage">
-          ${pipe.stages.map(s=>`<option ${((t?.stage||preset.stage)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
+          ${STAGES.map(s=>`<option ${((t?.stage||preset.stage||STAGE_START)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
       </div>
       <div class="f-grid f-2">
         <div class="field"><label>Assignee</label><select id="tWho">
@@ -2698,6 +2897,10 @@ function openTaskModal(taskId, preset={}){
         <div class="field"><label>&nbsp;</label><div class="check-list"><label>
           <input type="checkbox" id="tDone" ${t?.done?"checked":""}> Mark as done</label></div></div>
       </div>
+      <div class="field" id="tPauseWrap" style="display:${(t?.stage||preset.stage)===STAGE_PAUSE?"block":"none"}">
+        <label>Why is it paused?</label>
+        <select id="tPauseWhy">${PAUSE_REASONS.map(r=>`<option ${((t?.pauseReason||"").split(" — ")[0]===r)?"selected":""}>${esc(r)}</option>`).join("")}</select>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px">Your reporting line sees this on their dashboard.</div></div>
       <div class="field"><label>Notes</label><textarea id="tDesc" placeholder="Context, next step, links…">${esc(t?.desc||"")}</textarea></div>
       <div class="m-actions">
         ${t?`<button type="button" class="btn danger sm" id="tDel">Delete</button>`:""}
@@ -2709,9 +2912,8 @@ function openTaskModal(taskId, preset={}){
     <div id="tlHost"></div>
   </div>`);
   if(t) mountTimeline("#tlHost", t, true);
-  $("#tPipe").addEventListener("change",e=>{
-    const np=PIPES.find(p=>p.id===e.target.value);
-    $("#tStage").innerHTML = np.stages.map(s=>`<option>${esc(s)}</option>`).join("");
+  $("#tStage").addEventListener("change",()=>{
+    $("#tPauseWrap").style.display = $("#tStage").value===STAGE_PAUSE ? "block" : "none";
   });
   $("#tCancel").addEventListener("click",closeModal);
   const del=$("#tDel"); if(del) del.addEventListener("click", async ()=>{
@@ -2725,9 +2927,14 @@ function openTaskModal(taskId, preset={}){
       assignee:$("#tWho").value, pr:$("#tPr").value, due:$("#tDue").value||null,
       desc:$("#tDesc").value.trim(), done:$("#tDone").checked };
     if(!vals.title) return;
+    /* ticking done and choosing the Done stage are the same act - keep them in
+       step here too, so the screen never disagrees with the database */
+    if(vals.done) vals.stage = STAGE_DONE;
+    if(vals.stage === STAGE_DONE) vals.done = true;
     const row = {pipeline_id:vals.pipe, stage:vals.stage, title:vals.title, description:vals.desc,
       assignee:vals.assignee, priority:vals.pr, due:vals.due, done:vals.done,
-      done_on: vals.done ? (t?.doneOn||TODAY) : null};
+      done_on: vals.done ? (t?.doneOn||TODAY) : null,
+      pause_reason: vals.stage===STAGE_PAUSE ? ($("#tPauseWhy")?.value || null) : null};
     if(t){
       const saved = await guard(()=>DB.upd("dat_tasks", t.id, row));
       if(!saved) return;
@@ -2761,49 +2968,32 @@ function openPipeModal(pipeId){
   const p = pipeId ? PIPES.find(x=>x.id===pipeId) : null;
   const depts = DEPTS.length ? DEPTS : [...new Set(USERS.map(u=>u.dept))];
   const defDept = p?.dept || (depts.includes(me.dept) ? me.dept : depts[0]);
-  let stages = p ? [...p.stages] : ["To Do","In Progress","Done"];
+  let stages = [...STAGES];                 // fixed for every board
   let color = p?.color || 1;
-  function stageRows(){ return stages.map((s,i)=>`
-    <div class="stage-row" data-i="${i}">
-      <span style="font-size:11px;color:var(--muted);width:16px;text-align:right">${i+1}.</span>
-      <input value="${esc(s)}" data-stagein="${i}" maxlength="26">
-      <button type="button" class="mini-btn" data-up="${i}" ${i===0?"disabled style='opacity:.3'":""}>↑</button>
-      <button type="button" class="mini-btn" data-dn="${i}" ${i===stages.length-1?"disabled style='opacity:.3'":""}>↓</button>
-      <button type="button" class="mini-btn" data-rm="${i}" ${stages.length<=2?"disabled style='opacity:.3'":""} style="color:var(--critical)">✕</button>
-    </div>`).join(""); }
   modal(`<div class="modal">
-    <h3>${p?"Edit pipeline":"New pipeline"}</h3>
-    <div class="msub">A pipeline is a flow of stages — sales, operations, hiring, anything. Tasks move left to right; the last stage means done.</div>
+    <h3>${p?"Edit task board":"New task board"}</h3>
+    <div class="msub">A board holds daily tasks for one area of work. Every board uses the same four stages, so “paused” means the same thing across the company.</div>
     <form id="pipeForm" class="f-grid">
       <div class="f-grid f-2">
-        <div class="field"><label>Pipeline name</label><input id="pName" required maxlength="40" value="${esc(p?.name||"")}" placeholder="e.g. Recruitment"></div>
+        <div class="field"><label>Board name</label><input id="pName" required maxlength="40" value="${esc(p?.name||"")}" placeholder="e.g. Field operations"></div>
         <div class="field"><label>Department</label><select id="pDept">
           ${depts.map(d=>`<option ${defDept===d?"selected":""}>${esc(d)}</option>`).join("")}</select></div>
       </div>
       <div class="field"><label>Colour</label><div class="color-row" id="pColors">
         ${[1,2,3,4,5,7,8].map(c=>`<button type="button" class="color-dot ${c===color?"sel":""}" data-c="${c}" style="background:var(--s${c})"></button>`).join("")}</div></div>
-      <div class="field"><label>Stages (in order — last stage counts as “done”)</label>
-        <div id="stageList">${stageRows()}</div>
-        <button type="button" class="btn sm" id="addStage" style="margin-top:4px">＋ Add stage</button></div>
+      <div class="field"><label>Stages</label>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${STAGES.map((sg,i)=>`<span class="chip">${i+1}. ${esc(sg)}</span>`).join("")}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">The same four on every board — that is what makes the team view and the reports comparable. Pausing asks for a reason.</div></div>
       <div class="m-actions">
-        ${p&&(me.level==="ceo"||p.createdBy===me.id)?`<button type="button" class="btn danger sm" id="pDel">Delete pipeline</button>`:""}
+        ${p&&(me.level==="ceo"||p.createdBy===me.id)?`<button type="button" class="btn danger sm" id="pDel">Delete board</button>`:""}
         <div class="grow"></div>
         <button type="button" class="btn" id="pCancel">Cancel</button>
-        <button class="btn primary" type="submit">${p?"Save changes":"Create pipeline"}</button>
+        <button class="btn primary" type="submit">${p?"Save changes":"Create board"}</button>
       </div>
     </form>
   </div>`);
-  function syncStagesFromInputs(){ document.querySelectorAll("[data-stagein]").forEach(inp=>{ stages[+inp.dataset.stagein]=inp.value; }); }
-  function repaint(){ $("#stageList").innerHTML=stageRows(); wireStageRows(); }
-  function wireStageRows(){
-    document.querySelectorAll("[data-up]").forEach(b=>b.addEventListener("click",()=>{ syncStagesFromInputs(); const i=+b.dataset.up;
-      [stages[i-1],stages[i]]=[stages[i],stages[i-1]]; repaint(); }));
-    document.querySelectorAll("[data-dn]").forEach(b=>b.addEventListener("click",()=>{ syncStagesFromInputs(); const i=+b.dataset.dn;
-      [stages[i+1],stages[i]]=[stages[i],stages[i+1]]; repaint(); }));
-    document.querySelectorAll("[data-rm]").forEach(b=>b.addEventListener("click",()=>{ syncStagesFromInputs(); stages.splice(+b.dataset.rm,1); repaint(); }));
-  }
-  wireStageRows();
-  $("#addStage").addEventListener("click",()=>{ syncStagesFromInputs(); if(stages.length>=7){toast("Max 7 stages"); return;} stages.push("New stage"); repaint(); });
+  function syncStagesFromInputs(){ /* stages are fixed - nothing to read back */ }
   $("#pColors").addEventListener("click",e=>{ const d=e.target.closest(".color-dot"); if(!d) return;
     color=+d.dataset.c; document.querySelectorAll(".color-dot").forEach(x=>x.classList.toggle("sel",+x.dataset.c===color)); });
   $("#pCancel").addEventListener("click",closeModal);
@@ -2812,7 +3002,7 @@ function openPipeModal(pipeId){
     if(await guard(()=>DB.del("dat_pipelines", p.id).then(()=>true))===null) return;
     for(let i=TASKS.length-1;i>=0;i--) if(TASKS[i].pipe===p.id) TASKS.splice(i,1);   // DB cascades
     PIPES.splice(PIPES.findIndex(x=>x.id===p.id),1);
-    state.pipe=visiblePipes(me)[0]?.id||null; closeModal(); toast("Pipeline deleted"); render();
+    state.pipe=visiblePipes(me)[0]?.id||null; closeModal(); toast("Board deleted"); render();
   });
   $("#pipeForm").addEventListener("submit", async e=>{
     e.preventDefault(); syncStagesFromInputs();
@@ -2832,7 +3022,7 @@ function openPipeModal(pipeId){
       Object.assign(p, mapPipe(saved));
       toast(orphans.length ? `Pipeline updated ✓ — ${orphans.length} task(s) moved to “${stages[0]}”` : "Pipeline updated ✓");
     } else {
-      /* Not wrapped in guard(): a pipeline that will not save is worth an exact
+      /* Not wrapped in guard(): a board that will not save is worth an exact
          message, because "no permission" is almost never the real reason. */
       let saved = null;
       try{
@@ -2842,13 +3032,13 @@ function openPipeModal(pipeId){
         console.error("Pipeline create failed:", err);
         const msg = (err && (err.message || err.error_description)) || String(err);
         if(/row-level security/i.test(msg)){
-          openInfoModal("The pipeline could not be saved",
+          openInfoModal("The board could not be saved",
             `The database saved it but then refused to hand it back, which happens when the
              new pipeline has no owner recorded against it.<br><br>
              Run <b>TRACKER-UPDATE-05.sql</b> in the Supabase SQL Editor — it makes the database
              fill the owner in itself — then reload this page with <b>Ctrl+Shift+R</b> and try again.`);
         } else {
-          openInfoModal("The pipeline could not be saved",
+          openInfoModal("The board could not be saved",
             `The database refused it with:<br><br><code>${esc(msg)}</code>`);
         }
         return;
@@ -2985,9 +3175,9 @@ function openRoleModal(roleId, preset={}){
             <span style="width:9px;height:9px;border-radius:50%;background:var(--s${p.color});flex:none"></span>${esc(p.name)}</label>`).join("")}
         </div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Tick a pipeline to let anyone in this role see it across every team — how Accounts or Legal work company-wide. Leave all unticked and they only see their own team's work.</div></div>
-      ${PRIVPIPES_READY?`<div class="field"><label>Pipeline privacy</label>
+      ${PRIVPIPES_READY?`<div class="field"><label>Board privacy</label>
         <div class="check-list"><label>
-          <input type="checkbox" id="jPrivate" ${r?.privatePipes?"checked":""}> Pipelines stay private to each person</label></div>
+          <input type="checkbox" id="jPrivate" ${r?.privatePipes?"checked":""}> Boards stay private to each person</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Normally everyone in a department can see that department's pipelines. Tick this and they can't — two people holding this role won't see each other's boards. Their manager, VP and the CEO still do, and so do their own reports.</div></div>`:""}
       ${r?`<div class="field"><div class="check-list"><label>
         <input type="checkbox" id="jActive" ${r.active?"checked":""}> Role is active</label></div>
@@ -3074,7 +3264,7 @@ function openPerson(id){
     </div>
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px">
       <span class="chip ${pst.cls}">${esc(pst.text)}</span>
-      <span class="chip">${st.logs} log ${st.logs===1?"entry":"entries"}</span>
+      ${st.paused?`<span class="chip today">${st.paused} paused</span>`:""}
       <span class="chip">${st.docs} file${st.docs===1?"":"s"}</span>
       ${st.last?`<span class="chip">last active ${esc(relDay(st.last))}</span>`:""}
     </div>
@@ -3082,16 +3272,10 @@ function openPerson(id){
     <div class="sec-h" style="margin-top:0"><h2 style="font-size:14px">Open tasks</h2></div>
     ${open.length?open.slice(0,6).map(t=>{ const p=PIPES.find(x=>x.id===t.pipe); return `
       <div class="trow"><div><div class="t" data-opentask="${t.id}">${esc(t.title)}</div>
-        <div class="sub">${esc(p?.name||"")} · ${esc(t.stage)}</div></div>
+        <div class="sub">${esc(p?.name||"")} · <span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>${t.stage===STAGE_PAUSE&&t.pauseReason?` · ${esc(t.pauseReason)}`:""}</div></div>
         <div class="right">${dueChip(t)}</div></div>`;}).join("")
       :`<div style="color:var(--muted);font-size:13px">No open tasks.</div>`}
-    <div class="sec-h"><h2 style="font-size:14px">Daily log</h2>
-      <div class="spacer"></div><span style="font-size:11.5px;color:var(--muted)">${esc(periodLabel())}</span></div>
-    ${logs.length?`<div style="max-height:260px;overflow-y:auto">${logs.map(l=>{ const c=catOf(l.cat); return `
-      <div class="log-entry"><div class="cat-ic">${c.ic}</div>
-        <div><div class="lmeta">${relDay(l.date)} · ${esc(c.name)}</div>
-        <div class="note">${esc(l.note)}</div></div></div>`;}).join("")}</div>`
-      :`<div style="color:var(--muted);font-size:13px">No log entries in this period.</div>`}`
+`
     :`<div style="color:var(--muted);font-size:13px">You can see this person's profile, but their work detail is visible to their reporting line.</div>`}
     ${canSee?`<div id="personTl"></div>`:""}
     ${canSeeDocsOf(me,id)?`
@@ -3135,6 +3319,8 @@ async function mountPersonTimeline(sel, id){
         const name = t?trunc(t.title):"a task";
         switch(e.kind){
           case "created":  return `created “${name}”`;
+          case "paused":   return `paused “${name}”${e.note?` — ${e.note}`:""}`;
+          case "resumed":  return `resumed “${name}”`;
           case "moved":    return `moved “${name}” ${e.from||"—"} → ${e.to||"—"}`;
           case "done":     return `completed “${name}”`;
           case "reopened": return `reopened “${name}”`;
@@ -3187,8 +3373,7 @@ $("#drawerScrim").addEventListener("click",closeDrawer);
 $("#themeBtn").addEventListener("click",()=>{ state.theme=state.theme==="dark"?"light":"dark"; applyTheme(); });
 $("#notifBtn").addEventListener("click", toggleNotifications);
 $("#quickAdd").addEventListener("click",()=>{
-  if(state.view==="daily"){ const n=$("#qaNote"); if(n){ n.focus(); n.scrollIntoView({behavior:"smooth",block:"center"}); } else toast("Pick a person tab with write access"); }
-  else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
+  if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
   else openTaskModal(null,{});
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });

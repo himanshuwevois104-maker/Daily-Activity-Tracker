@@ -1,6 +1,6 @@
 # WeVois — Daily Activity Tracker
 
-Internal team tracker: custom pipelines, daily activity log, and a
+Internal team tracker: daily tasks on fixed stages, documents, team groups, and a
 CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
 
 ## Before this site will work
@@ -10,10 +10,12 @@ CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
    (all kept outside this folder, in `1-SQL-RUN-IN-SUPABASE`) must each be run
    once in the Supabase SQL Editor. Update 02 adds document attachments and
    their private storage bucket; update 03 adds the per-task timeline; update 04
-   stops two people in the same job role seeing each other's pipelines;
+   stops two people in the same job role seeing each other's boards;
    `TRACKER-UPDATE-05.sql` makes the database record who created a pipeline; and
    `TRACKER-UPDATE-06.sql` adds team groups — chat, shared files and temporary
-   members. Skip 02, 03 or 06 and the app still works — the Documents tab, the
+   members; and `TRACKER-UPDATE-07.sql` turns Pipelines into **Daily Tasks** with
+   the fixed four stages (Start → In Progress → Pause → Done) and pause reasons.
+   Skip 02, 03 or 06 and the app still works — the Documents tab, the
    task timeline and the Groups tab just say they aren't switched on.
 2. **Fill in `supabase-config.js`.** Paste your Supabase Project URL and the
    **anon public** key. Never the `service_role` key.
