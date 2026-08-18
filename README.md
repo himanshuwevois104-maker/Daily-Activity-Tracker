@@ -14,7 +14,9 @@ CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
    `TRACKER-UPDATE-05.sql` makes the database record who created a pipeline; and
    `TRACKER-UPDATE-06.sql` adds team groups — chat, shared files and temporary
    members; and `TRACKER-UPDATE-07.sql` turns Pipelines into **Daily Tasks** with
-   the fixed four stages (Start → In Progress → Pause → Done) and pause reasons.
+   the fixed four stages (Start → In Progress → Pause → Done) and pause reasons;
+   and `TRACKER-UPDATE-08.sql` adds KPIs — monthly targets set from above,
+   updated by the person they belong to.
    Skip 02, 03 or 06 and the app still works — the Documents tab, the
    task timeline and the Groups tab just say they aren't switched on.
 2. **Fill in `supabase-config.js`.** Paste your Supabase Project URL and the

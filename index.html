@@ -340,6 +340,40 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .toast{background:var(--ink); color:var(--page); padding:10px 16px; border-radius:11px; font-size:13px;
   font-weight:550; box-shadow:var(--shadow-lg); animation:pop .2s ease; display:flex; gap:8px; align-items:center}
 
+/* KPIs */
+.kpi-row{padding:13px 0;border-bottom:1px solid var(--grid)}
+.kpi-row:last-child{border-bottom:none}
+.kpi-head{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:13.5px}
+.kpi-bar{position:relative;height:9px;border-radius:99px;background:var(--surface-2);margin:2px 0}
+.kpi-bar i{display:block;height:100%;border-radius:99px;background:var(--accent);transition:width .3s}
+.kpi-bar i.good{background:var(--good)}
+.kpi-bar i.ok{background:var(--accent)}
+.kpi-bar i.behind{background:var(--warning)}
+.kpi-bar .pace{position:absolute;top:-3px;width:2px;height:15px;background:var(--ink);opacity:.45;border-radius:2px}
+.kpi-edit{display:grid;grid-template-columns:120px 1fr auto;gap:8px;margin-top:9px}
+.kpi-edit input{padding:8px 11px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px}
+@media(max-width:640px){.kpi-edit{grid-template-columns:1fr}}
+
+/* Working-pattern strip */
+.act-strip{display:flex;align-items:flex-end;gap:3px;height:64px;padding:2px 0}
+.act-strip i{flex:1;border-radius:2px 2px 0 0;min-width:3px;display:block}
+
+/* Board header */
+.board-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px}
+.board-head .grow{flex:1}
+.board-pick{padding:9px 13px;border-radius:11px;border:1px solid var(--border);background:var(--surface);
+  font-size:13.5px;font-weight:650;color:var(--ink);min-width:230px}
+.board-sub{font-size:12px;color:var(--muted);margin:-4px 0 12px 2px}
+.btn .cnt{background:var(--accent);color:#fff;border-radius:99px;padding:0 6px;font-size:10.5px;
+  font-weight:800;margin-left:4px}
+
+/* Tasks & status list on a person */
+.ptask{display:flex;gap:10px;align-items:center;padding:9px 4px;border-bottom:1px solid var(--grid);cursor:pointer}
+.ptask:last-child{border-bottom:none}
+.ptask:hover{background:var(--surface-2)}
+.ptask .t{font-size:13px;font-weight:600;color:var(--ink)}
+.ptask .s{font-size:11.5px;color:var(--muted);margin-top:1px}
+
 /* Right now + Needs attention */
 .now-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:9px}
 .now-cell{display:flex;gap:9px;align-items:flex-start;padding:10px 11px;border-radius:11px;
@@ -542,7 +576,7 @@ const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{labe
 /* ---------------- live data, loaded from Supabase ---------------- */
 let DEPTS = [], ROLES = [], USERS = [], PIPES = [], TASKS = [],
     LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [],
-    GROUPS = [], GMEMS = [], MSGS = [];
+    GROUPS = [], GMEMS = [], MSGS = [], KPIS = [], KTARGETS = [];
 const U = id => USERS.find(u=>u.id===id);
 
 /* ---------------- Supabase ---------------- */
@@ -599,6 +633,10 @@ const mapReq = r => ({id:r.id, kind:r.kind, by:r.requested_by, on:(r.created_at|
   status:r.status, payload:r.payload||{}, note:r.note||"", decidedBy:r.decided_by,
   decidedOn:r.decided_on, reason:r.reason||""});
 const mapEv = e => ({id:e.id, user:e.user_id, type:e.type, text:e.text, ts:new Date(e.created_at).getTime()});
+const mapKpi  = k => ({id:k.id, name:k.name, unit:k.unit||"", detail:k.detail||"", active:k.active!==false});
+const mapKTgt = t => ({id:t.id, kpi:t.kpi_id, user:t.user_id, period:(t.period||"").slice(0,10),
+  target:Number(t.target)||0, achieved:Number(t.achieved)||0, note:t.note||"",
+  setBy:t.set_by, updatedAt:t.updated_at?new Date(t.updated_at).getTime():null});
 const mapGroup = g => ({id:g.id, name:g.name, purpose:g.purpose||"", color:g.color||1,
   active:g.active!==false, createdBy:g.created_by});
 const mapGMem = m => ({group:m.group_id, user:m.user_id, until:m.until||null, addedBy:m.added_by});
@@ -621,6 +659,12 @@ async function loadDocs(){
 /* Groups arrive with TRACKER-UPDATE-06.sql; until it is run the tab says so
    instead of the whole app failing to load. */
 let GROUPS_READY = true;
+let KPIS_READY = true;
+async function loadKpis(){
+  try{ const [k,t] = await Promise.all([DB.sel("dat_kpis"), DB.sel("dat_kpi_targets")]);
+       KPIS_READY = true; return [k,t]; }
+  catch(e){ KPIS_READY = false; console.warn("KPIs unavailable:", e.message||e); return [[],[]]; }
+}
 async function loadGroups(){
   try{
     const [g,m,msg] = await Promise.all([
@@ -633,14 +677,14 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
-    DB.sel("dat_pause_reasons").catch(()=>[]),
+    DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -659,6 +703,8 @@ async function loadAll(){
     .sort((a,b)=>(a.ord||0)-(b.ord||0)).map(r=>r.name);
   if(!PAUSE_REASONS.length) PAUSE_REASONS = ["Waiting on the client","Waiting on a colleague",
     "Blocked - needs approval","Missing information","Reprioritised","Other"];
+  KPIS     = kp[0].map(mapKpi).filter(k=>k.active).sort((a,b)=>a.name.localeCompare(b.name));
+  KTARGETS = kp[1].map(mapKTgt);
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -668,12 +714,14 @@ async function addEvent(type,text){
 /* ---------------- app state ---------------- */
 const state = {
   me:null, view:"dashboard", pipe:"p1",
-  fAssignee:"all", fPriority:"all", fSearch:"", showDone:true,
+  fAssignee:"all", fPriority:"all", fSearch:"", showDone:true, showFilters:false,
   theme: (matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
   logWho:null,   // person filter on daily-log view (managers+)
   docWho:null,   // person filter on documents view
   group:null,    // group open on the groups view
-  period:"month",// window the team summary and the report cover
+  period:"today",// window the team summary and the report cover
+  kpiMonth:null, // month shown on the KPI screen (set at sign-in)
+  reviewOf:null, // the person open on the review screen
   adminTab:"accounts",
 };
 
@@ -858,6 +906,8 @@ const IC = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="12" width="7.5" height="9" rx="1.6"/><rect x="3" y="15.5" width="7.5" height="5.5" rx="1.6"/></svg>',
   pipe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 5v13a1.5 1.5 0 0 0 1.5 1.5H8M4 5l4 0M20 5v7a1.5 1.5 0 0 1-1.5 1.5H16"/><rect x="8" y="9" width="8" height="12" rx="1.5"/></svg>',
   log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5z"/><path d="M5 4v16M9 9h5M9 13h5"/></svg>',
+  review:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="7.5" r="3.2"/><path d="M4.5 19c.5-3 2.8-4.8 6-4.8 1 0 1.9.2 2.7.5"/><path d="M15.5 15.5l2 2 3.5-3.8"/></svg>',
+  kpi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>',
   doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/><path d="M9 13h6M9 16.5h4"/></svg>',
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
@@ -991,43 +1041,72 @@ async function openNotifPanel(){
     const out = $("#notifTestOut");
     out.innerHTML = `<span style="color:var(--muted)">Sending…</span>`;
     const tag = "dat-test-" + Date.now();
-    let handedOver = false;
+    let listed = null;            // true / false / null = the browser could not tell us
     try{
       const reg = navigator.serviceWorker ? await navigator.serviceWorker.getRegistration() : null;
       if(reg && reg.showNotification){
         await reg.showNotification("WeVois Tracker — test", {
           body:"If you can read this on your screen, notifications are working.",
-          icon:NOTIF_ICON, badge:NOTIF_ICON, tag, data:{taskId:null}});
+          icon:NOTIF_ICON, badge:NOTIF_ICON, tag, data:{taskId:null},
+          requireInteraction:true});     // stay on screen, so "did you see it" is a fair question
         await new Promise(r=>setTimeout(r,400));
         if(typeof reg.getNotifications === "function"){
-          const live = await reg.getNotifications({tag});
-          handedOver = live.length > 0;
-          setTimeout(()=>reg.getNotifications({tag}).then(ns=>ns.forEach(n=>n.close())).catch(()=>{}), 6000);
-        } else {
-          handedOver = true;      // can't inspect it, but showNotification did not throw
+          try{ listed = (await reg.getNotifications({tag})).length > 0; }catch(_){ listed = null; }
+          setTimeout(()=>{ try{ reg.getNotifications({tag})
+            .then(ns=>ns.forEach(n=>n.close())).catch(()=>{}); }catch(_){} }, 25000);
         }
       } else {
-        new Notification("WeVois Tracker — test", {body:"Notifications are working.", icon:NOTIF_ICON, tag});
-        handedOver = true;
+        new Notification("WeVois Tracker — test",
+          {body:"Notifications are working.", icon:NOTIF_ICON, tag});
       }
     }catch(err){
-      out.innerHTML = `<div style="color:var(--critical)">The browser refused it: <code>${esc(err.message||String(err))}</code></div>`;
+      out.innerHTML = `<div style="color:var(--critical)">The browser refused it outright:
+        <code>${esc(err.message||String(err))}</code></div>`;
       return;
     }
-    out.innerHTML = handedOver
-      ? `<div style="background:var(--surface-2);border-radius:10px;padding:11px 13px">
-           <b>The browser accepted it.</b><br>
-           If a box appeared on screen — everything works, and the reason you saw nothing earlier is
-           one of: you were looking at the tracker tab at the time, or you made the change yourself.
-           Neither of those notifies you, by design.<br><br>
-           If <b>nothing appeared</b>, the browser handed it to Windows and Windows held it back.
-           That is <b>Do not disturb</b>. Right-click the bell in your system tray &rarr;
-           <b>Turn off do not disturb</b>, or Settings &rarr; System &rarr; Notifications, and check
-           <b>Google Chrome</b> is allowed there too. Then press this button again.
-         </div>`
-      : `<div style="color:var(--critical)">The browser said yes but then dropped it — that usually means
-         notifications are blocked for this site at the browser level. Click the padlock in the address
-         bar &rarr; Notifications &rarr; Allow, then reload.</div>`;
+
+    /* The browser accepted it - showNotification did not throw and permission is
+       granted. Whether it actually reached the screen is a question only you can
+       answer: Windows can swallow a notification silently, and Chrome on Windows
+       does not always list a native notification back to us. So ask, instead of
+       guessing - the old version guessed, and guessed wrong. */
+    out.innerHTML = `
+      <div style="background:var(--surface-2);border-radius:10px;padding:12px 14px">
+        <b>Sent — the browser accepted it${listed===true?" and is still showing it":""}.</b>
+        <div style="margin-top:6px">Did a notification box appear on your screen just now?</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button type="button" class="btn sm" id="nSaw">Yes, I saw it</button>
+          <button type="button" class="btn sm" id="nNope">No, nothing appeared</button>
+        </div>
+      </div>`;
+    $("#nSaw").addEventListener("click",()=>{
+      out.innerHTML = `<div style="background:color-mix(in srgb,var(--good) 12%, var(--surface));
+        border-radius:10px;padding:12px 14px">
+        <b>✅ Notifications are working properly.</b><br>
+        Nothing is wrong with the setup. If you saw nothing earlier when a task changed, it was one of
+        these two, and both are deliberate:<br><br>
+        • <b>You were looking at the tracker</b> when it happened — a popup for something already on
+        your screen would be noise, so you get a small toast instead.<br>
+        • <b>You made the change yourself</b> — nobody is notified about their own action. Test it with
+        a second account: have a team member move a card while your tab sits in the background.</div>`;
+    });
+    $("#nNope").addEventListener("click",()=>{
+      out.innerHTML = `<div style="background:color-mix(in srgb,var(--warning) 14%, var(--surface));
+        border-radius:10px;padding:12px 14px">
+        <b>Then Windows is holding it back, not the browser.</b><br>
+        Every check above is green and the browser accepted the notification, so the block is at the
+        operating-system level. In order of likelihood:<br><br>
+        <b>1. Do not disturb / Focus assist.</b> Right-click the bell in the system tray (bottom-right)
+        → <b>Turn off do not disturb</b>. With it on, notifications are collected silently in the
+        notification centre instead of appearing.<br>
+        <b>2. Chrome is not allowed to notify.</b> Windows <b>Settings → System → Notifications</b> →
+        make sure notifications are on, and that <b>Google Chrome</b> is switched on in the app list.<br>
+        <b>3. Chrome's own setting.</b> Paste <code>chrome://settings/content/notifications</code> into
+        the address bar and check this site is under <i>Allowed</i>. While you are there, if
+        <i>"Use quieter messaging"</i> is on, turn it off.<br><br>
+        Check the notification centre now (Windows key + N) — if the test message is sitting in there,
+        that confirms it: the notification arrived, Windows just did not show it on screen.</div>`;
+    });
   });
 }
 
@@ -1115,12 +1194,15 @@ function wireNotifBridge(){
 const NAVS = [
   {id:"dashboard", label:"Dashboard", ic:IC.dash},
   {id:"pipelines", label:"Daily Tasks", ic:IC.pipe},
+  {id:"kpis",      label:"KPIs",      ic:IC.kpi},
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
 const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
-  documents:"Documents", groups:"Groups", team:"Team", admin:"Admin console", requests:"My requests"};
+  kpis:"KPIs", documents:"Documents", groups:"Groups", team:"Team",
+  review:"Employee review", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
+  if(teamPeople().length) n.push({id:"review", label:"Review", ic:IC.review});
   if(GROUPS_READY && (myGroups().length || canRunGroups(me)))
     n.push({id:"groups", label:"Groups", ic:IC.chat, count:unreadTotal()});
   if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
@@ -1226,6 +1308,7 @@ async function afterLogin(){
   state.me = USERS.find(u=>u.id===user.id);
   if(!state.me || !state.me.active){ renderNoProfile(user.email); return; }
   state.view="dashboard"; state.logWho=null; state.docWho=null; state.adminTab="accounts";
+  state.kpiMonth = THIS_MONTH;
   state.fAssignee="all"; state.fPriority="all"; state.fSearch="";
   const vp = visiblePipes(state.me); state.pipe = vp[0]?.id || null;
   $("#login").classList.add("hidden");
@@ -1255,7 +1338,7 @@ function subscribeRealtime(){
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_task_events"}, onTaskEventLive);
   /* group chat: realtime only delivers messages from groups you belong to */
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_messages"}, onMessageLive);
-  ["dat_groups","dat_group_members"].forEach(t=>
+  ["dat_groups","dat_group_members","dat_kpis","dat_kpi_targets"].forEach(t=>
     chan.on("postgres_changes",{event:"*",schema:"public",table:t}, queueReload));
   chan.subscribe(status=>{ REALTIME_STATE = status || "unknown"; });
 }
@@ -1284,13 +1367,17 @@ function render(){
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
+    : state.view==="kpis" ? "Targets are set from above; the figure you achieved is yours to update"
+    : state.view==="review" ? "One person, one period — everything you need for the conversation"
     : fmtDateLong(TODAY);
   $("#quickAdd").classList.toggle("hidden",
-    state.view==="admin"||state.view==="requests"||state.view==="groups");
-  $("#quickAddLbl").textContent = state.view==="documents" ? "Add document" : "New task";
+    state.view==="admin"||state.view==="requests"||state.view==="groups"||state.view==="review");
+  $("#quickAddLbl").textContent = state.view==="documents" ? "Add document"
+    : state.view==="kpis" ? "Set targets" : "New task";
   applyTheme(); paintNotifBtn();
-  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, documents:renderDocs,
-    groups:renderGroups, team:renderTeam, admin:renderAdmin, requests:renderRequests}[state.view])();
+  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, kpis:renderKpis,
+    documents:renderDocs, groups:renderGroups, team:renderTeam, review:renderReview,
+    admin:renderAdmin, requests:renderRequests}[state.view])();
 }
 
 /* ================= tooltip ================= */
@@ -1349,10 +1436,11 @@ function wireWeekChart(host, data){
    still open, what is late, and whether they have gone quiet. Everything here
    is worked out from data already loaded — no extra queries. */
 const PERIODS = {
-  week:  {label:"This week",    from:()=>iso(new Date(todayD.getTime()-(todayD.getDay()===0?6:todayD.getDay()-1)*DAY))},
-  month: {label:"This month",   from:()=>iso(new Date(todayD.getFullYear(), todayD.getMonth(), 1))},
-  d30:   {label:"Last 30 days", from:()=>dOff(-29)},
-  all:   {label:"All time",     from:()=>"0000-01-01"},
+  today:   {label:"Today",        from:()=>TODAY},
+  week:    {label:"This week",    from:()=>iso(new Date(todayD.getTime()-(todayD.getDay()===0?6:todayD.getDay()-1)*DAY))},
+  month:   {label:"This month",   from:()=>iso(new Date(todayD.getFullYear(), todayD.getMonth(), 1))},
+  quarter: {label:"This quarter", from:()=>iso(new Date(todayD.getFullYear(), Math.floor(todayD.getMonth()/3)*3, 1))},
+  year:    {label:"This year",    from:()=>iso(new Date(todayD.getFullYear(), 0, 1))},
 };
 const periodFrom = () => (PERIODS[state.period]||PERIODS.month).from();
 const periodLabel = () => (PERIODS[state.period]||PERIODS.month).label;
@@ -1431,6 +1519,17 @@ function attentionItems(){
       out.push({sev:1, who, task:t, icon:"🐌",
         text:`In progress ${d} days with no move — ${who}`, sub:t.title});
   });
+  /* someone well behind the pace of the month, with the month still running */
+  const pace = monthPace(THIS_MONTH);
+  teamPeople().forEach(u=>{
+    targetsFor(u.id, THIS_MONTH).forEach(t=>{
+      const p = pct(t);
+      if(pace >= 25 && p < pace - 25)
+        out.push({sev:2, who:u.name, person:u.id, icon:"🎯",
+          text:`Behind on ${kpiOf(t.kpi)?.name || "a KPI"} — ${u.name}`,
+          sub:`${fmtNum(t.achieved)} of ${fmtNum(t.target)} (${p}%) with the month ${pace}% gone`});
+    });
+  });
   teamPeople().forEach(u=>{
     const s = personStats(u.id);
     if(s.quietDays !== null && s.quietDays >= 5)
@@ -1492,7 +1591,7 @@ function teamSummaryCard(){
   const people = teamPeople();
   return `<div class="card card-pad" style="margin-top:16px">
     <div class="card-head"><div><h3>Your team — ${esc(periodLabel().toLowerCase())}</h3>
-      <div class="sub">${people.length} ${people.length===1?"person":"people"} · click a name for their detail, daily log and timeline</div></div>
+      <div class="sub">${people.length} ${people.length===1?"person":"people"} · click a name to review them</div></div>
       <div class="spacer"></div>
       <select id="periodSel" style="padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12.5px">
         ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>${v.label}</option>`).join("")}
@@ -1502,7 +1601,7 @@ function teamSummaryCard(){
     ${people.length?`<div style="overflow-x:auto"><table class="simple">
       <thead><tr><th>Person</th><th style="text-align:right">Done</th><th style="text-align:right">Open</th>
         <th style="text-align:right">Paused</th><th style="text-align:right">Overdue</th>
-        <th style="text-align:right">Avg days</th><th style="text-align:right">Files</th><th>Status</th></tr></thead>
+        <th style="text-align:right">Avg days</th><th style="text-align:right">KPI</th><th>Status</th><th></th></tr></thead>
       <tbody>${people.map(u=>{ const s=personStats(u.id), st=personStatus(s);
         return `<tr class="click" data-person="${u.id}">
           <td><div style="display:flex;align-items:center;gap:9px">${avatar(u,"sm")}
@@ -1513,17 +1612,450 @@ function teamSummaryCard(){
           <td style="text-align:right;${s.paused?"color:var(--warning-text,#8a6206);font-weight:650":"color:var(--muted)"}">${s.paused}</td>
           <td style="text-align:right;${s.overdue?"color:var(--critical);font-weight:700":"color:var(--muted)"}">${s.overdue}</td>
           <td style="text-align:right;color:var(--ink2)" title="Working time — paused days excluded">${s.avgWork!=null?s.avgWork.toFixed(1):"—"}</td>
-          <td style="text-align:right;${s.docs?"":"color:var(--muted)"}">${s.docs}</td>
-          <td><span class="chip ${st.cls}">${esc(st.text)}</span></td></tr>`;}).join("")}
+          <td style="text-align:right">${(()=>{ const k=kpiScore(u.id, THIS_MONTH);
+            return k==null ? `<span style="color:var(--muted)">—</span>`
+              : `<span class="chip ${k>=100?"done":k>=monthPace(THIS_MONTH)-10?"":"overdue"}">${k}%</span>`;})()}</td>
+          <td><span class="chip ${st.cls}">${esc(st.text)}</span></td>
+          <td style="text-align:right"><button class="mini-btn" data-review="${u.id}">Review</button></td></tr>`;}).join("")}
       </tbody></table></div>`
     :`<div style="color:var(--muted);font-size:13px">Nobody reports to you yet.</div>`}
   </div>`;
 }
 function wireTeamSummary(){
+  document.querySelectorAll("[data-review]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation(); state.reviewOf=b.dataset.review; state.view="review"; render(); }));
   const sel=$("#periodSel");
   if(sel) sel.addEventListener("change",()=>{ state.period=sel.value; render(); });
   const x=$("#dlXlsx"); if(x) x.addEventListener("click",()=>downloadReport("xlsx"));
   const p=$("#dlPdf");  if(p) p.addEventListener("click",()=>downloadReport("pdf"));
+}
+
+/* ================= KPIs =================
+   A KPI is a number to reach in a month. Someone above you sets it; you move
+   the achieved figure; everyone above you watches the bar fill. Nobody sets
+   their own target — the database refuses it (TRACKER-UPDATE-08.sql). */
+const monthKey = d => iso(new Date(d.getFullYear(), d.getMonth(), 1));
+const THIS_MONTH = monthKey(todayD);
+const monthName = k => new Date(k+"T00:00:00").toLocaleDateString("en-IN",{month:"long", year:"numeric"});
+const kpiOf = id => KPIS.find(k=>k.id===id);
+const canSetKpiFor = uid => !!state.me && uid !== state.me.id && visibleUserIds(state.me).includes(uid);
+const canSetAnyKpi = () => teamPeople().length > 0;
+const targetsFor = (uid, month) => KTARGETS.filter(t=>t.user===uid && t.period===(month||state.kpiMonth))
+  .sort((a,b)=>(kpiOf(a.kpi)?.name||"").localeCompare(kpiOf(b.kpi)?.name||""));
+const pct = t => t.target>0 ? Math.min(999, Math.round(t.achieved/t.target*100)) : 0;
+/* how far through the month we are - the fair yardstick for "behind" */
+function monthPace(month){
+  const start = new Date((month||state.kpiMonth)+"T00:00:00");
+  const days  = new Date(start.getFullYear(), start.getMonth()+1, 0).getDate();
+  if(month && month !== THIS_MONTH) return 100;          // a past month is fully elapsed
+  return Math.round(todayD.getDate() / days * 100);
+}
+/* the one number that summarises a person: average attainment across their KPIs */
+function kpiScore(uid, month){
+  const ts = targetsFor(uid, month);
+  if(!ts.length) return null;
+  return Math.round(ts.reduce((a,t)=>a+Math.min(100,pct(t)),0)/ts.length);
+}
+const fmtNum = n => (Math.round(n*100)/100).toLocaleString("en-IN");
+function kpiBar(t){
+  const p = pct(t), pace = monthPace(t.period);
+  const cls = p>=100 ? "good" : p>=pace-10 ? "ok" : "behind";
+  return `<div class="kpi-bar"><i class="${cls}" style="width:${Math.min(100,p)}%"></i>
+    ${t.period===THIS_MONTH?`<b class="pace" style="left:${Math.min(100,pace)}%" title="Where you should be by today"></b>`:""}</div>`;
+}
+
+async function saveProgress(t, achieved, note){
+  const patch = {achieved, note:note||""};
+  const saved = await guard(()=>DB.upd("dat_kpi_targets", t.id, patch));
+  if(!saved) return false;
+  Object.assign(t, mapKTgt(saved));
+  return true;
+}
+
+function renderKpis(){
+  const me = state.me;
+  const month = state.kpiMonth;
+  const mine = targetsFor(me.id, month);
+  const team = teamPeople();
+  const months = [0,1,2,3].map(i=>monthKey(new Date(todayD.getFullYear(), todayD.getMonth()-i, 1)));
+
+  $("#view").innerHTML = `
+  ${!KPIS_READY?`<div class="card card-pad" style="margin-bottom:18px;border-color:var(--critical)">
+    <b>KPIs are not switched on yet.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:5px">Run <code>TRACKER-UPDATE-08.sql</code>
+    in the Supabase SQL Editor, then reload this page.</div></div>`:""}
+
+  <div class="pipe-tabs">
+    ${months.map(m=>`<button class="pipe-tab ${m===month?"active":""}" data-kmonth="${m}">${esc(monthName(m))}</button>`).join("")}
+    ${team.length?`<button class="btn sm" id="setKpi">＋ Set targets</button>`:""}
+  </div>
+
+  <div class="card card-pad">
+    <div class="card-head"><div><h3>My KPIs</h3>
+      <div class="sub">${mine.length?`${esc(monthName(month))} · update your figure as you go`:"Nothing set for you this month"}</div></div>
+      ${mine.length?`<div class="spacer"></div>
+        <div style="font-size:12px;color:var(--muted)">Day ${todayD.getDate()} — you should be around <b style="color:var(--ink2)">${monthPace(month)}%</b></div>`:""}</div>
+    ${mine.length?mine.map(t=>{ const k=kpiOf(t.kpi); const p=pct(t);
+      return `<div class="kpi-row">
+        <div class="kpi-head">
+          <div><b>${esc(k?.name||"KPI")}</b>
+            <span class="sub" style="margin-left:6px">${fmtNum(t.achieved)} of ${fmtNum(t.target)}${k?.unit?" "+esc(k.unit):""}</span></div>
+          <div class="spacer"></div>
+          <span class="chip ${p>=100?"done":p>=monthPace(month)-10?"":"overdue"}">${p}%</span>
+        </div>
+        ${kpiBar(t)}
+        ${month===THIS_MONTH?`<div class="kpi-edit">
+          <input type="number" step="0.01" min="0" id="kv-${t.id}" value="${t.achieved}" aria-label="Achieved">
+          <input id="kn-${t.id}" maxlength="120" placeholder="A short note (optional) — e.g. Ward 4 and 7 done" value="${esc(t.note)}">
+          <button class="btn sm" data-ksave="${t.id}">Update</button></div>`
+        :`<div class="sub" style="margin-top:5px">${esc(t.note||"")}</div>`}
+        <div class="sub" style="margin-top:4px">Set by ${esc(U(t.setBy)?.name||"someone above you")}${t.updatedAt?` · last updated ${esc(fmtWhen(t.updatedAt))}`:""}</div>
+      </div>`;}).join("")
+    :`<div style="color:var(--muted);font-size:13px">No KPI has been set for you for ${esc(monthName(month))}.</div>`}
+  </div>
+
+  ${team.length?`<div class="card card-pad" style="margin-top:16px">
+    <div class="card-head"><div><h3>Team KPIs</h3>
+      <div class="sub">${esc(monthName(month))} · you set these, they update them</div></div></div>
+    <div style="overflow-x:auto"><table class="simple">
+      <thead><tr><th>Person</th><th>KPI</th><th style="text-align:right">Target</th>
+        <th style="text-align:right">Achieved</th><th style="width:150px">Progress</th>
+        <th style="text-align:right">%</th><th></th></tr></thead>
+      <tbody>${team.flatMap(u=>{ const ts=targetsFor(u.id, month);
+        if(!ts.length) return [`<tr class="click" data-person="${u.id}">
+          <td><div style="display:flex;align-items:center;gap:9px">${avatar(u,"sm")}
+            <div><div style="font-weight:650">${esc(u.name)}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div></div></div></td>
+          <td colspan="6" style="color:var(--muted);font-size:12.5px">No KPI set for this month</td></tr>`];
+        return ts.map((t,i)=>{ const k=kpiOf(t.kpi), p=pct(t);
+          return `<tr>
+            <td>${i===0?`<div style="display:flex;align-items:center;gap:9px" class="click" data-person="${u.id}">${avatar(u,"sm")}
+              <div><div style="font-weight:650">${esc(u.name)}</div>
+              <div style="font-size:11px;color:var(--muted)">${esc(titleOf(u))}</div></div></div>`:""}</td>
+            <td>${esc(k?.name||"")}${k?.unit?`<span style="color:var(--muted)"> (${esc(k.unit)})</span>`:""}</td>
+            <td style="text-align:right">${fmtNum(t.target)}</td>
+            <td style="text-align:right;font-weight:650">${fmtNum(t.achieved)}</td>
+            <td>${kpiBar(t)}</td>
+            <td style="text-align:right"><span class="chip ${p>=100?"done":p>=monthPace(month)-10?"":"overdue"}">${p}%</span></td>
+            <td style="text-align:right"><button class="mini-btn" data-kedit="${t.id}">Edit</button></td></tr>`;});
+      }).join("")}
+      </tbody></table></div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:9px">The marker on each bar is where they should be by today. Nobody can change their own target — only the achieved figure.</div>
+  </div>`:""}`;
+
+  document.querySelectorAll("[data-kmonth]").forEach(b=>b.addEventListener("click",()=>{
+    state.kpiMonth=b.dataset.kmonth; render(); }));
+  const sk=$("#setKpi"); if(sk) sk.addEventListener("click",()=>openKpiModal(null));
+  document.querySelectorAll("[data-kedit]").forEach(b=>b.addEventListener("click",()=>
+    openKpiModal(KTARGETS.find(t=>t.id===b.dataset.kedit))));
+  document.querySelectorAll("[data-ksave]").forEach(b=>b.addEventListener("click", async ()=>{
+    const t=KTARGETS.find(x=>x.id===b.dataset.ksave); if(!t) return;
+    const v=parseFloat($("#kv-"+t.id).value);
+    if(isNaN(v) || v<0){ toast("Enter a number, zero or more."); return; }
+    b.disabled=true; b.textContent="Saving…";
+    const ok = await saveProgress(t, v, $("#kn-"+t.id).value.trim());
+    b.disabled=false; b.textContent="Update";
+    if(ok){ toast("Progress updated ✓"); render(); }
+  }));
+  wireCommon();
+}
+
+/* Set one target across a whole team in one go, which is how targets actually
+   get handed out — then adjust the odd individual afterwards. */
+function openKpiModal(existing){
+  const me=state.me, team=teamPeople();
+  if(!team.length){ toast("Nobody reports to you yet."); return; }
+  const editing = !!existing;
+  const preUser = existing ? [existing.user] : team.map(u=>u.id);
+  modal(`<div class="modal wide">
+    <h3>${editing?"Edit target":"Set targets"}</h3>
+    <div class="msub">${editing
+      ? `Change the target or correct the achieved figure for ${esc(U(existing.user)?.name||"this person")}.`
+      : "Pick the people, pick what is being measured, and give the number for the month. Everyone selected gets the same target — you can adjust individuals afterwards."}</div>
+    <form id="kpiForm" class="f-grid">
+      <div class="f-grid f-2">
+        <div class="field"><label>What is being measured</label>
+          <select id="kKpi" required>${KPIS.map(k=>`<option value="${k.id}" ${existing&&existing.kpi===k.id?"selected":""}>${esc(k.name)}${k.unit?` (${esc(k.unit)})`:""}</option>`).join("")}
+            <option value="__new">＋ Add a new KPI…</option></select></div>
+        <div class="field"><label>Month</label>
+          <select id="kMonth">${[0,1,2].map(i=>{const m=monthKey(new Date(todayD.getFullYear(),todayD.getMonth()-i+1,1));
+            return `<option value="${m}" ${((existing?existing.period:THIS_MONTH)===m)?"selected":""}>${esc(monthName(m))}</option>`;}).join("")}</select></div>
+      </div>
+      <div class="f-grid f-2" id="kNewWrap" style="display:none">
+        <div class="field"><label>New KPI name</label><input id="kNewName" maxlength="40" placeholder="e.g. Vehicles serviced"></div>
+        <div class="field"><label>Unit</label><input id="kNewUnit" maxlength="16" placeholder="e.g. vehicles"></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Target for the month</label>
+          <input type="number" step="0.01" min="0.01" id="kTarget" required value="${existing?existing.target:""}" placeholder="e.g. 40"></div>
+        ${editing?`<div class="field"><label>Achieved so far</label>
+          <input type="number" step="0.01" min="0" id="kAch" value="${existing.achieved}"></div>`:`<div></div>`}
+      </div>
+      ${editing?"":`<div class="field"><label>Who gets this target</label>
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <button type="button" class="mini-btn" id="kAll">Select all</button>
+          <button type="button" class="mini-btn" id="kNone">Clear</button></div>
+        <div class="check-list" style="max-height:200px;overflow-y:auto">
+          ${team.map(u=>`<label><input type="checkbox" class="kWho" value="${u.id}" ${preUser.includes(u.id)?"checked":""}>
+            ${esc(u.name)} <span style="color:var(--muted);font-size:11.5px">— ${esc(titleOf(u))}</span></label>`).join("")}
+        </div></div>`}
+      <div class="m-actions">
+        ${editing?`<button type="button" class="btn danger sm" id="kDel">Remove target</button>`:""}
+        <div class="grow"></div>
+        <button type="button" class="btn" id="kCancel">Cancel</button>
+        <button class="btn primary" type="submit">${editing?"Save":"Set targets"}</button></div>
+    </form></div>`);
+  $("#kKpi").addEventListener("change",()=>{
+    $("#kNewWrap").style.display = $("#kKpi").value==="__new" ? "grid" : "none"; });
+  const all=$("#kAll"), none=$("#kNone");
+  if(all)  all.addEventListener("click",()=>document.querySelectorAll(".kWho").forEach(c=>c.checked=true));
+  if(none) none.addEventListener("click",()=>document.querySelectorAll(".kWho").forEach(c=>c.checked=false));
+  $("#kCancel").addEventListener("click",closeModal);
+  const del=$("#kDel"); if(del) del.addEventListener("click", async ()=>{
+    if(await guard(()=>DB.del("dat_kpi_targets", existing.id).then(()=>true))===null) return;
+    const i=KTARGETS.findIndex(x=>x.id===existing.id); if(i>-1) KTARGETS.splice(i,1);
+    closeModal(); toast("Target removed"); render();
+  });
+  $("#kpiForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const target = parseFloat($("#kTarget").value);
+    if(!(target>0)){ toast("The target has to be more than zero."); return; }
+    const month = $("#kMonth").value;
+
+    let kpiId = $("#kKpi").value;
+    if(kpiId === "__new"){
+      const nm=$("#kNewName").value.trim();
+      if(!nm){ toast("Give the new KPI a name."); return; }
+      const made = await guard(()=>DB.ins("dat_kpis",{name:nm, unit:$("#kNewUnit").value.trim(), created_by:me.id}));
+      if(!made) return;
+      KPIS.push(mapKpi(made)); KPIS.sort((a,b)=>a.name.localeCompare(b.name));
+      kpiId = made.id;
+    }
+
+    if(editing){
+      const patch = {target, achieved: parseFloat($("#kAch").value)||0};
+      const saved = await guard(()=>DB.upd("dat_kpi_targets", existing.id, patch));
+      if(!saved) return;
+      Object.assign(existing, mapKTgt(saved));
+      closeModal(); toast("Target updated ✓"); render(); return;
+    }
+
+    const who=[...document.querySelectorAll(".kWho:checked")].map(c=>c.value);
+    if(!who.length){ toast("Pick at least one person."); return; }
+    let made=0, skipped=0;
+    for(const uid of who){
+      const already = KTARGETS.find(t=>t.user===uid && t.kpi===kpiId && t.period===month);
+      if(already){
+        const saved = await guard(()=>DB.upd("dat_kpi_targets", already.id, {target}));
+        if(saved){ Object.assign(already, mapKTgt(saved)); made++; } else skipped++;
+      } else {
+        const saved = await guard(()=>DB.ins("dat_kpi_targets",
+          {kpi_id:kpiId, user_id:uid, period:month, target, set_by:me.id}));
+        if(saved){ KTARGETS.push(mapKTgt(saved)); made++; } else skipped++;
+      }
+    }
+    closeModal();
+    toast(made ? `Target set for ${made} ${made===1?"person":"people"} ✓${skipped?` (${skipped} refused)`:""}`
+               : "Nothing could be set — check you oversee those people.");
+    render();
+  });
+}
+
+/* ================= employee review =================
+   Everything known about one person in one place, for the period you pick:
+   what they finished, what is stuck, how they work, their KPIs, their files.
+   Built for the conversation you have WITH them, so every number is one they
+   can check for themselves. */
+function reviewFor(id){
+  const s = personStats(id);
+  const from = periodFrom();
+  const mine = TASKS.filter(t=>t.assignee===id);
+  const closedIn = mine.filter(t=>t.done && inPeriod(t.doneOn));
+  const addedIn  = mine.filter(t=>t.createdAt && iso(new Date(t.createdAt)) >= from);
+  const pausedNow = mine.filter(t=>!t.done && t.stage===STAGE_PAUSE);
+  const everPaused = closedIn.filter(t=>t.pausedMs>0);
+  const pausedDays = (everPaused.reduce((a,t)=>a+t.pausedMs,0)
+    + pausedNow.reduce((a,t)=>a+(t.pausedAt?Date.now()-t.pausedAt:0)+(t.pausedMs||0),0)) / DAY;
+  const onTime = closedIn.filter(t=>t.due && t.doneOn && t.doneOn <= t.due).length;
+  const hadDue = closedIn.filter(t=>t.due).length;
+  return {s, mine, closedIn, addedIn, pausedNow, pausedDays,
+          onTime, hadDue, onTimePct: hadDue ? Math.round(onTime/hadDue*100) : null};
+}
+/* a small bar per day, so a quiet stretch is visible rather than inferred */
+function activityStrip(id, days){
+  const n = days || 30;
+  const cells = [];
+  let max = 1;
+  for(let i=n-1;i>=0;i--){
+    const d = dOff(-i);
+    const done = TASKS.filter(t=>t.assignee===id && t.done && t.doneOn===d).length;
+    const started = TASKS.filter(t=>t.assignee===id && t.startedAt && iso(new Date(t.startedAt))===d).length;
+    const v = done*2 + started;
+    max = Math.max(max, v);
+    cells.push({d, v, done, started});
+  }
+  return `<div class="act-strip">${cells.map(c=>`
+    <i style="height:${c.v?Math.max(12, Math.round(c.v/max*100))+"%":"3px"};
+       background:${c.v?"var(--accent)":"var(--grid)"}"
+       title="${esc(fmtDate(c.d))} — ${c.done} done, ${c.started} started"></i>`).join("")}</div>
+    <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:3px">
+      <span>${esc(fmtDate(dOff(-(n-1))))}</span><span>today</span></div>`;
+}
+
+function renderReview(){
+  const me = state.me;
+  const people = teamPeople();
+  if(!people.length){ state.view="dashboard"; render(); return; }
+  if(!state.reviewOf || !people.some(p=>p.id===state.reviewOf)) state.reviewOf = people[0].id;
+  const u = U(state.reviewOf);
+  const r = reviewFor(u.id), s = r.s, st = personStatus(s);
+  const mgr = u.mgr ? U(u.mgr) : null;
+  const ks = targetsFor(u.id, THIS_MONTH);
+
+  $("#view").innerHTML = `
+  <div class="card card-pad">
+    <div class="card-head" style="align-items:flex-start">
+      <div style="display:flex;gap:13px;align-items:center">
+        ${avatar(u,"lg")}
+        <div><div style="font-weight:750;font-size:18px">${esc(u.name)}</div>
+          <div style="font-size:12.5px;color:var(--muted)">${esc(titleOf(u))} · ${esc(u.dept)}${mgr?` · reports to ${esc(mgr.name)}`:""}</div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+            <span class="chip ${st.cls}">${esc(st.text)}</span>
+            ${s.last?`<span class="chip">last active ${esc(relDay(s.last))}</span>`:""}
+          </div></div>
+      </div>
+      <div class="spacer"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="revWho" style="padding:8px 11px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px">
+          ${people.map(p=>`<option value="${p.id}" ${p.id===u.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select>
+        <select id="revPeriod" style="padding:8px 11px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px">
+          ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>${v.label}</option>`).join("")}</select>
+        <button class="btn sm" id="revPdf">⬇ PDF</button>
+      </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:9px;margin-top:4px">
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Completed</div><div class="val" style="font-size:22px">${s.done}</div><div class="delta">${esc(periodLabel().toLowerCase())}</div></div>
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Still open</div><div class="val" style="font-size:22px">${s.open}</div><div class="delta">${s.working} in progress</div></div>
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Overdue</div><div class="val" style="font-size:22px;${s.overdue?"color:var(--critical)":""}">${s.overdue}</div><div class="delta">${s.overdue?"needs a conversation":"nothing late"}</div></div>
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Paused now</div><div class="val" style="font-size:22px;${s.paused?"color:var(--warning)":""}">${s.paused}</div><div class="delta">${r.pausedDays>=0.5?fmtNum(Math.round(r.pausedDays))+" days lost":"no waiting"}</div></div>
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Avg working days</div><div class="val" style="font-size:22px">${s.avgWork!=null?s.avgWork.toFixed(1):"—"}</div><div class="delta">per completed task</div></div>
+      <div class="card tile" style="padding:11px 13px"><div class="lbl">Finished on time</div><div class="val" style="font-size:22px">${r.onTimePct!=null?r.onTimePct+"%":"—"}</div><div class="delta">${r.hadDue?`${r.onTime} of ${r.hadDue} with a due date`:"none had a due date"}</div></div>
+    </div>
+  </div>
+
+  <div class="grid g-main-side" style="margin-top:16px">
+    <div style="min-width:0;display:flex;flex-direction:column;gap:16px">
+      <div class="card card-pad">
+        <div class="card-head"><div><h3>Tasks &amp; status</h3>
+          <div class="sub">${r.addedIn.length} added and ${r.closedIn.length} closed in this period · click any task for its full history</div></div></div>
+        ${personTasksHTML(u.id)}
+      </div>
+
+      <div class="card card-pad">
+        <div class="card-head"><div><h3>Working pattern</h3>
+          <div class="sub">Last 30 days — taller means more finished that day</div></div></div>
+        ${activityStrip(u.id, 30)}
+      </div>
+    </div>
+
+    <div style="min-width:0;display:flex;flex-direction:column;gap:16px">
+      <div class="card card-pad">
+        <div class="card-head"><div><h3>KPIs</h3><div class="sub">${esc(monthName(THIS_MONTH))}</div></div></div>
+        ${ks.length?ks.map(t=>{ const k=kpiOf(t.kpi), p=pct(t);
+          return `<div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+              <b>${esc(k?.name||"KPI")}</b>
+              <span style="color:var(--muted)">${fmtNum(t.achieved)} / ${fmtNum(t.target)}</span>
+              <span style="margin-left:auto" class="chip ${p>=100?"done":p>=monthPace(THIS_MONTH)-10?"":"overdue"}">${p}%</span></div>
+            ${kpiBar(t)}
+            ${t.note?`<div class="sub" style="margin-top:3px">“${esc(t.note)}”</div>`:""}</div>`;}).join("")
+        :`<div style="color:var(--muted);font-size:13px">No KPI set for this month.
+          ${canSetKpiFor(u.id)?`<br><button class="btn sm" id="revSetKpi" style="margin-top:9px">Set one now</button>`:""}</div>`}
+      </div>
+
+      ${r.pausedNow.length?`<div class="card card-pad">
+        <div class="card-head"><div><h3>What is blocking them</h3>
+          <div class="sub">Waiting, not idle — these need someone to unblock</div></div></div>
+        ${r.pausedNow.map(t=>`<div class="trow"><div>
+          <div class="t" data-opentask="${t.id}">${esc(t.title)}</div>
+          <div class="sub">${esc(t.pauseReason||"no reason given")} · ${daysInStage(t)??0} day${daysInStage(t)===1?"":"s"}</div></div></div>`).join("")}
+      </div>`:""}
+
+      <div class="card card-pad">
+        <div class="card-head"><div><h3>Documents</h3><div class="sub">${esc(periodLabel().toLowerCase())}</div></div></div>
+        ${(()=>{ const ds = DOCS.filter(d=>d.user===u.id && inPeriod(d.date)).sort((a,b)=>b.ts-a.ts);
+          return ds.length?ds.map(d=>`<div class="log-entry"><div class="file-ic">${esc(docExt(d))}</div>
+            <div style="min-width:0"><div class="doc-name" data-revdoc="${d.id}">${esc(d.title||d.file)}</div>
+            <div class="lmeta">${esc(relDay(d.date))} · ${esc(fmtBytes(d.size))}</div></div></div>`).join("")
+          :`<div style="color:var(--muted);font-size:13px">Nothing attached in this period.</div>`; })()}
+      </div>
+    </div>
+  </div>`;
+
+  $("#revWho").addEventListener("change",e=>{ state.reviewOf=e.target.value; render(); });
+  $("#revPeriod").addEventListener("change",e=>{ state.period=e.target.value; render(); });
+  $("#revPdf").addEventListener("click",()=>reviewPdf(u.id));
+  const sk=$("#revSetKpi"); if(sk) sk.addEventListener("click",()=>openKpiModal(null));
+  document.querySelectorAll("[data-revdoc]").forEach(el=>el.addEventListener("click",()=>{
+    const d=DOCS.find(x=>x.id===el.dataset.revdoc); if(!d) return;
+    const w=window.open("","_blank"); openDoc(d, true, w); }));
+  wireCommon();
+}
+
+/* one person's review, printable — for the appraisal folder or the conversation */
+function reviewPdf(id){
+  const u = U(id), r = reviewFor(id), s = r.s, st = personStatus(s);
+  const ks = targetsFor(id, THIS_MONTH);
+  const rows = r.mine
+    .filter(t=>!t.done || inPeriod(t.doneOn))
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const w = window.open("", "_blank");
+  if(!w){ toast("Allow pop-ups for this site to download the PDF."); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+    <title>Review — ${esc(u.name)} — ${esc(periodLabel())}</title><style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111;padding:26px;line-height:1.45}
+    h1{font-size:20px;margin-bottom:2px} .meta{font-size:12px;color:#666;margin-bottom:18px}
+    h2{font-size:13.5px;margin:20px 0 8px;padding-bottom:4px;border-bottom:2px solid #111}
+    .tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+    .tile{border:1px solid #ddd;border-radius:8px;padding:9px 13px;min-width:104px}
+    .tile .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:#666}
+    .tile .v{font-size:19px;font-weight:700}
+    table{width:100%;border-collapse:collapse;font-size:10.5px}
+    th{text-align:left;background:#f2f2ef;padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-transform:uppercase}
+    td{padding:4px 6px;border:1px solid #e6e6e6;vertical-align:top}
+    @page{size:A4;margin:13mm}
+    </style></head><body>
+    <h1>Performance review — ${esc(u.name)}</h1>
+    <div class="meta">${esc(titleOf(u))} · ${esc(u.dept)}${u.mgr?` · reports to ${esc(U(u.mgr)?.name||"")}`:""}
+      &nbsp;|&nbsp; ${esc(periodLabel())} (${esc(fmtDateLong(periodFrom()))} to ${esc(fmtDateLong(TODAY))})
+      &nbsp;|&nbsp; prepared by ${esc(state.me.name)} on ${esc(new Date().toLocaleDateString("en-IN"))}</div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Completed</div><div class="v">${s.done}</div></div>
+      <div class="tile"><div class="k">Still open</div><div class="v">${s.open}</div></div>
+      <div class="tile"><div class="k">Overdue</div><div class="v">${s.overdue}</div></div>
+      <div class="tile"><div class="k">Paused now</div><div class="v">${s.paused}</div></div>
+      <div class="tile"><div class="k">Avg working days</div><div class="v">${s.avgWork!=null?s.avgWork.toFixed(1):"—"}</div></div>
+      <div class="tile"><div class="k">On time</div><div class="v">${r.onTimePct!=null?r.onTimePct+"%":"—"}</div></div>
+      <div class="tile"><div class="k">Status</div><div class="v" style="font-size:13px">${esc(st.text)}</div></div>
+    </div>
+    ${ks.length?`<h2>KPIs — ${esc(monthName(THIS_MONTH))}</h2>
+      <table><thead><tr><th>KPI</th><th>Target</th><th>Achieved</th><th>Attainment</th><th>Their note</th></tr></thead>
+      <tbody>${ks.map(t=>`<tr><td>${esc(kpiOf(t.kpi)?.name||"")}</td><td>${fmtNum(t.target)}</td>
+        <td>${fmtNum(t.achieved)}</td><td>${pct(t)}%</td><td>${esc(t.note||"")}</td></tr>`).join("")}</tbody></table>`:""}
+    <h2>Tasks in this period</h2>
+    <table><thead><tr><th>Task</th><th>Board</th><th>Stage</th><th>Added</th><th>Due</th><th>Completed</th><th>Working days</th><th>Pause reason</th></tr></thead>
+    <tbody>${rows.map(t=>`<tr>
+      <td>${esc(t.title)}</td><td>${esc(PIPES.find(p=>p.id===t.pipe)?.name||"")}</td>
+      <td>${esc(t.stage)}</td><td>${t.createdAt?esc(fmtDate(iso(new Date(t.createdAt)))):""}</td>
+      <td>${t.due?esc(fmtDate(t.due)):""}</td><td>${t.doneOn?esc(fmtDate(t.doneOn)):""}</td>
+      <td>${(t.closedAt&&t.startedAt)?((Math.max(0,(t.closedAt-t.startedAt)-(t.pausedMs||0))/DAY).toFixed(1)):""}</td>
+      <td>${t.stage===STAGE_PAUSE?esc(t.pauseReason||"not given"):""}</td></tr>`).join("")}</tbody></table>
+    </body></html>`);
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); };
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} }, 700);
+  toast("Choose “Save as PDF” in the print box");
 }
 
 /* ================= the downloadable report =================
@@ -1554,6 +2086,7 @@ function reportData(){
       "Paused":s.paused, "Not started":s.notStarted, "Overdue":s.overdue,
       "Avg working days": s.avgWork!=null ? Number(s.avgWork.toFixed(1)) : "",
       "Avg calendar days": s.avg!=null ? Number(s.avg.toFixed(1)) : "",
+      "KPI attainment %": kpiScore(u.id, monthKey(new Date(TODAY+"T00:00:00"))) ?? "",
       "Documents":s.docs,
       "Last active": s.last || "never", "Status":st.text}; });
 
@@ -1569,6 +2102,18 @@ function reportData(){
         ? Number((Math.max(0,(t.closedAt-t.startedAt)-(t.pausedMs||0))/DAY).toFixed(1)) : "",
       "Pause reason": t.stage===STAGE_PAUSE ? (t.pauseReason||"not given") : "",
       "Created by":nameOf(t.createdBy)}));
+
+  /* KPI attainment for the month the period ends in */
+  const kmonth = monthKey(new Date(TODAY+"T00:00:00"));
+  const kpiRows = people.flatMap(u=>targetsFor(u.id, kmonth).map(t=>{
+    const k = kpiOf(t.kpi);
+    return {"Person":u.name, "KPI":k?.name||"", "Unit":k?.unit||"",
+      "Target":t.target, "Achieved":t.achieved,
+      "Attainment %": t.target>0 ? Number((t.achieved/t.target*100).toFixed(1)) : 0,
+      "Month should be % gone": monthPace(kmonth),
+      "Set by": nameOf(t.setBy), "Their note": t.note,
+      "Last updated": t.updatedAt ? iso(new Date(t.updatedAt)) : ""};
+  }));
 
   /* everything currently stuck, so the report answers "what is blocked?" */
   const blocked = TASKS.filter(t=>ids.has(t.assignee) && !t.done && t.stage===STAGE_PAUSE)
@@ -1595,7 +2140,7 @@ function reportData(){
     });
     return row; });
 
-  return {summary, tasks, daily, docs, perDay, people,
+  return {summary, tasks, daily, docs, perDay, kpiRows, people,
           from, to:TODAY, label:periodLabel()};
 }
 async function downloadReport(kind){
@@ -1622,6 +2167,7 @@ async function downloadReport(kind){
     };
     add(data.summary, "Summary");
     add(data.tasks,   "Tasks");
+    add(data.kpiRows, "KPIs");
     add(data.daily,   "Paused & blocked");
     add(data.docs,    "Documents");
     add(data.perDay,  "Day by day");
@@ -1653,8 +2199,9 @@ async function downloadReport(kind){
       &nbsp;|&nbsp; ${data.people.length} people &nbsp;|&nbsp; prepared for ${esc(me.name)} (${esc(titleOf(me))})
       &nbsp;|&nbsp; generated ${esc(new Date().toLocaleString("en-IN"))}</div>
     ${tbl("Summary — one row per person", data.summary,
-      ["Name","Job role","Department","Tasks completed","Still open","In progress","Paused","Not started","Overdue","Avg working days","Documents","Last active","Status"])}
+      ["Name","Job role","Department","Tasks completed","Still open","In progress","Paused","Not started","Overdue","Avg working days","KPI attainment %","Documents","Last active","Status"])}
     ${tbl("Tasks", data.tasks, ["Person","Task","Pipeline","Stage","Priority","Due","Done","Completed on","Working days","Paused days"])}
+    ${tbl("KPIs this month", data.kpiRows, ["Person","KPI","Target","Achieved","Attainment %","Set by","Their note"])}
     ${tbl("Paused &amp; blocked right now", data.daily, ["Person","Task","Board","Paused for (days)","Reason","Due","Priority"])}
     ${tbl("Documents", data.docs, ["Date","Person","Title","File","Size (KB)"])}
     </body></html>`;
@@ -1745,6 +2292,17 @@ function renderDashboard(){
       </div>`}
     </div>
     <div style="min-width:0; display:flex; flex-direction:column; gap:16px">
+      ${targetsFor(me.id, THIS_MONTH).length?`<div class="card card-pad">
+        <div class="card-head"><div><h3>My KPIs</h3>
+          <div class="sub">${esc(monthName(THIS_MONTH))} · you should be around ${monthPace(THIS_MONTH)}% by today</div></div></div>
+        ${targetsFor(me.id, THIS_MONTH).map(t=>{ const k=kpiOf(t.kpi), p=pct(t);
+          return `<div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+              <b>${esc(k?.name||"KPI")}</b>
+              <span style="color:var(--muted)">${fmtNum(t.achieved)} / ${fmtNum(t.target)}${k?.unit?" "+esc(k.unit):""}</span>
+              <span style="margin-left:auto" class="chip ${p>=100?"done":p>=monthPace(THIS_MONTH)-10?"":"overdue"}">${p}%</span></div>
+            ${kpiBar(t)}</div>`;}).join("")}
+        <button class="btn sm" data-nav="kpis" style="width:100%;justify-content:center">Update my figures</button></div>`:""}
       <div class="card card-pad">
         <div class="card-head"><div><h3>My day</h3><div class="sub">Due today &amp; overdue</div></div></div>
         ${myDayList()}</div>
@@ -1797,14 +2355,36 @@ function renderPipelines(){
   if(state.fSearch) tasks=tasks.filter(t=>t.title.toLowerCase().includes(state.fSearch.toLowerCase()));
   if(!state.showDone) tasks=tasks.filter(t=>!t.done);
 
+  /* With more than a handful of boards the old tab row became a wall - which is
+     exactly what a CEO or VP sees. Past four boards it becomes a picker grouped
+     by department, and the filters fold away until they are wanted. */
+  const many = pipes.length > 4;
+  const byDept = {};
+  pipes.forEach(p=>{ (byDept[p.dept] = byDept[p.dept] || []).push(p); });
+  const openN = pid => visibleTasks(me).filter(t=>t.pipe===pid && !t.done).length;
+  const activeFilters = (state.fAssignee!=="all"?1:0) + (state.fPriority!=="all"?1:0)
+                      + (state.fSearch?1:0) + (state.showDone?0:1);
+
   $("#view").innerHTML = `
-  <div class="pipe-tabs">
-    ${pipes.map(p=>`<button class="pipe-tab ${p.id===state.pipe?"active":""}" data-pipe="${p.id}">
-      <span class="pdot" style="background:var(--s${p.color})"></span>${esc(p.name)}
-      <span style="color:var(--muted);font-weight:600">${visibleTasks(me).filter(t=>t.pipe===p.id&&!t.done).length}</span></button>`).join("")}
-    ${canCreatePipeline(me)?`<button class="pipe-tab" data-act="newPipe" style="border-style:dashed">＋ New board</button>`:""}
+  <div class="board-head">
+    ${many
+      ? `<select id="pipePick" class="board-pick">
+           ${Object.keys(byDept).sort().map(dp=>`<optgroup label="${esc(dp)}">
+             ${byDept[dp].map(p=>`<option value="${p.id}" ${p.id===state.pipe?"selected":""}>${esc(p.name)} — ${openN(p.id)} open</option>`).join("")}
+           </optgroup>`).join("")}
+         </select>`
+      : `<div class="pipe-tabs" style="margin:0">
+           ${pipes.map(p=>`<button class="pipe-tab ${p.id===state.pipe?"active":""}" data-pipe="${p.id}">
+             <span class="pdot" style="background:var(--s${p.color})"></span>${esc(p.name)}
+             <span style="color:var(--muted);font-weight:600">${openN(p.id)}</span></button>`).join("")}
+         </div>`}
+    <div class="grow"></div>
+    <button class="btn sm" id="fToggle">⚙ Filters${activeFilters?` <span class="cnt">${activeFilters}</span>`:""}</button>
+    ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit board</button>`:""}
+    ${canCreatePipeline(me)?`<button class="btn sm primary" data-act="newPipe">＋ New board</button>`:""}
   </div>
-  <div class="filters">
+  ${many?`<div class="board-sub">${esc(pipe.dept)} · ${openN(pipe.id)} open of ${visibleTasks(me).filter(t=>t.pipe===pipe.id).length}</div>`:""}
+  <div class="filters" id="filterRow" style="display:${state.showFilters||activeFilters?"flex":"none"}">
     <input type="search" id="fSearch" placeholder="Search tasks…" value="${esc(state.fSearch)}">
     <select id="fAssignee"><option value="all">Everyone</option>
       ${people.map(u=>`<option value="${u.id}" ${state.fAssignee===u.id?"selected":""}>${esc(u.name)}</option>`).join("")}</select>
@@ -1812,9 +2392,7 @@ function renderPipelines(){
       ${["urgent","high","medium","low"].map(p=>`<option value="${p}" ${state.fPriority===p?"selected":""}>${p[0].toUpperCase()+p.slice(1)}</option>`).join("")}</select>
     <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink2)">
       <input type="checkbox" id="fDone" ${state.showDone?"checked":""}> Show done</label>
-    <div style="margin-left:auto;display:flex;gap:8px">
-      ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit board</button>`:""}
-    </div>
+    ${activeFilters?`<button class="mini-btn" id="fClear" style="margin-left:auto">Clear filters</button>`:""}
   </div>
   <div class="board" id="board">
     ${pipe.stages.map((s,si)=>{
@@ -1830,6 +2408,13 @@ function renderPipelines(){
         </div>
       </div>`; }).join("")}
   </div>`;
+  const pick=$("#pipePick");
+  if(pick) pick.addEventListener("change",()=>{ state.pipe=pick.value; renderPipelines(); });
+  const ft=$("#fToggle");
+  if(ft) ft.addEventListener("click",()=>{ state.showFilters=!state.showFilters; renderPipelines(); });
+  const fc=$("#fClear");
+  if(fc) fc.addEventListener("click",()=>{ state.fAssignee="all"; state.fPriority="all";
+    state.fSearch=""; state.showDone=true; renderPipelines(); });
   wireBoard(pipe); wireCommon();
 }
 function taskCard(t,pipe){
@@ -3253,6 +3838,7 @@ function openPerson(id){
       ${isLive(u)?"":`<span class="chip overdue">Deactivated</span>`}
       ${mgr?`<span class="chip">Reports to ${esc(mgr.name)}</span>`:""}</div>
     ${u.email?`<div style="font-size:12.5px;color:var(--ink2);margin-bottom:14px">✉️ ${esc(u.email)}</div>`:""}
+    ${canSee&&teamPeople().some(p=>p.id===id)?`<button class="btn primary" style="width:100%;justify-content:center;margin-bottom:10px" id="fullReview">📋 Full review</button>`:""}
     ${isAdmin(me)?`<button class="btn" style="width:100%;justify-content:center;margin-bottom:14px" id="editAccBtn">⚙️ Edit account</button>`:""}
     ${canSee?`
     <div style="font-size:11px;font-weight:750;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:7px">${esc(periodLabel())}</div>
@@ -3277,6 +3863,16 @@ function openPerson(id){
       :`<div style="color:var(--muted);font-size:13px">No open tasks.</div>`}
 `
     :`<div style="color:var(--muted);font-size:13px">You can see this person's profile, but their work detail is visible to their reporting line.</div>`}
+    ${canSee&&targetsFor(id, THIS_MONTH).length?`
+    <div class="sec-h"><h2 style="font-size:14px">KPIs</h2>
+      <div class="spacer"></div><span style="font-size:11.5px;color:var(--muted)">${esc(monthName(THIS_MONTH))}</span></div>
+    ${targetsFor(id, THIS_MONTH).map(t=>{ const k=kpiOf(t.kpi), p=pct(t);
+      return `<div style="margin-bottom:11px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+          <b>${esc(k?.name||"KPI")}</b>
+          <span style="color:var(--muted)">${fmtNum(t.achieved)} / ${fmtNum(t.target)}${k?.unit?" "+esc(k.unit):""}</span>
+          <span style="margin-left:auto" class="chip ${p>=100?"done":p>=monthPace(THIS_MONTH)-10?"":"overdue"}">${p}%</span></div>
+        ${kpiBar(t)}</div>`;}).join("")}`:""}
     ${canSee?`<div id="personTl"></div>`:""}
     ${canSeeDocsOf(me,id)?`
     <div class="sec-h"><h2 style="font-size:14px">Documents</h2>
@@ -3294,61 +3890,64 @@ function openPerson(id){
     const w = window.open("", "_blank"); openDoc(d, false, w); }));
   const ab=$("#assignBtn"); if(ab) ab.addEventListener("click",()=>{ closeDrawer(); openTaskModal(null,{assignee:id}); });
   const eb=$("#editAccBtn"); if(eb) eb.addEventListener("click",()=>{ closeDrawer(); openAccountModal(id); });
+  const fr=$("#fullReview"); if(fr) fr.addEventListener("click",()=>{
+    closeDrawer(); state.reviewOf=id; state.view="review"; render(); });
   $("#drawer").querySelectorAll("[data-opentask]").forEach(el=>el.addEventListener("click",()=>{ closeDrawer(); openTaskModal(el.dataset.opentask); }));
 }
 /* One chronological story of a person's period: what they did to tasks, what
    they wrote in the daily log, what they attached. The task half comes from the
    history table, so it is the same record the task timeline shows. */
-async function mountPersonTimeline(sel, id){
-  const host = $(sel); if(!host) return;
-  host.innerHTML = `<div class="sec-h"><h2 style="font-size:14px">Timeline</h2></div>
-    <div style="font-size:12px;color:var(--muted)">Loading…</div>`;
-  let tev = [];
-  try{
-    const {data,error} = await sb.from("dat_task_events").select("*")
-      .eq("actor", id).order("seq",{ascending:false}).limit(120);
-    if(error) throw error;
-    tev = (data||[]).map(mapTEv);
-  }catch(err){ console.warn("Person timeline:", err.message||err); }
-
+function stageChip(t){
+  const cls = t.stage===STAGE_DONE ? "done" : t.stage===STAGE_PAUSE ? "today"
+            : t.stage===STAGE_WIP ? "" : "p-low";
+  return `<span class="chip ${cls}">${esc(t.stage)}</span>`;
+}
+/* The tasks this person has, and where each one stands. Deliberately NOT an
+   event stream: a manager reviewing someone wants the list of work and its
+   status, not forty lines of every drag and drop. The blow-by-blow is still
+   there on the task itself. */
+function personTasksHTML(id){
   const from = periodFrom();
-  const items = [
-    ...tev.filter(e=>iso(new Date(e.ts))>=from).map(e=>({
-      ts:e.ts, kind:"task", icon:e.kind==="done"?"✅":e.kind==="comment"?"💬":e.kind==="created"?"✨":"➡️",
-      text:(()=>{ const t=TASKS.find(x=>x.id===e.task);
-        const name = t?trunc(t.title):"a task";
-        switch(e.kind){
-          case "created":  return `created “${name}”`;
-          case "paused":   return `paused “${name}”${e.note?` — ${e.note}`:""}`;
-          case "resumed":  return `resumed “${name}”`;
-          case "moved":    return `moved “${name}” ${e.from||"—"} → ${e.to||"—"}`;
-          case "done":     return `completed “${name}”`;
-          case "reopened": return `reopened “${name}”`;
-          case "assigned": return `reassigned “${name}” to ${e.to||"someone"}`;
-          case "comment":  return `noted on “${name}”: ${e.note}`;
-          case "priority": return `changed priority on “${name}” to ${e.to}`;
-          case "due":      return `${e.to?`set “${name}” due ${fmtDate(e.to)}`:`removed the due date on “${name}”`}`;
-          default:         return `updated “${name}”`;
-        }})() })),
-    ...LOGS.filter(l=>l.user===id && inPeriod(l.date)).map(l=>({
-      ts:new Date(l.date+"T12:00:00").getTime(), kind:"log", icon:catOf(l.cat).ic,
-      text:`logged: ${l.note}` })),
-    ...DOCS.filter(d=>d.user===id && inPeriod(d.date)).map(d=>({
-      ts:d.ts, kind:"doc", icon:"📎", text:`attached ${d.file||d.title||"a document"}` })),
-  ].sort((a,b)=>b.ts-a.ts).slice(0,80);
-
+  const mine = TASKS.filter(t=>t.assignee===id)
+    .filter(t=>{
+      const added = t.createdAt ? iso(new Date(t.createdAt)) : null;
+      const closed = t.doneOn;
+      return (added && added >= from) || (closed && closed >= from) || !t.done;
+    })
+    .sort((a,b)=>{
+      const rank = x => x.stage===STAGE_PAUSE?0 : x.stage===STAGE_WIP?1 : x.stage===STAGE_START?2 : 3;
+      return rank(a)-rank(b) || (b.createdAt||0)-(a.createdAt||0);
+    });
+  if(!mine.length) return `<div style="color:var(--muted);font-size:13px">No tasks in this period.</div>`;
+  return `<div style="max-height:320px;overflow-y:auto">${mine.map(t=>{
+    const p = PIPES.find(x=>x.id===t.pipe);
+    const added = t.createdAt ? fmtDate(iso(new Date(t.createdAt))) : "—";
+    return `<div class="ptask" data-opentask="${t.id}">
+      <div style="min-width:0">
+        <div class="t">${esc(t.title)}</div>
+        <div class="s">${esc(p?.name||"")} · added ${esc(added)}${
+          t.done && t.doneOn ? ` · done ${esc(fmtDate(t.doneOn))}` : ""}${
+          t.stage===STAGE_PAUSE && t.pauseReason ? ` · ${esc(t.pauseReason)}` : ""}${
+          !t.done && t.due ? ` · due ${esc(fmtDate(t.due))}` : ""}</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        ${!t.done && t.due && t.due<TODAY ? `<span class="chip overdue">late</span>` : ""}
+        ${stageChip(t)}
+      </div></div>`;}).join("")}</div>`;
+}
+function mountPersonTimeline(sel, id){
+  const host = $(sel); if(!host) return;
+  const mine = TASKS.filter(t=>t.assignee===id);
+  const n = mine.filter(t=>!t.done).length;
   host.innerHTML = `
-    <div class="sec-h"><h2 style="font-size:14px">Timeline</h2>
+    <div class="sec-h"><h2 style="font-size:14px">Tasks &amp; status</h2>
       <div class="spacer"></div>
-      <span style="font-size:11.5px;color:var(--muted)">${items.length} entr${items.length===1?"y":"ies"} · ${esc(periodLabel().toLowerCase())}</span></div>
-    ${items.length?`<div style="max-height:300px;overflow-y:auto">
-      ${items.map(it=>`<div style="display:flex;gap:9px;padding:0 0 11px;font-size:12.5px">
-        <span style="flex:none;width:20px;text-align:center">${it.icon}</span>
-        <span style="min-width:0;flex:1">${esc(it.text)}
-          <span class="when">${esc(fmtWhen(it.ts))}</span></span>
-      </div>`).join("")}
-      </div>`
-    :`<div style="color:var(--muted);font-size:13px">Nothing recorded in this period.</div>`}`;
+      <span style="font-size:11.5px;color:var(--muted)">${n} open · ${esc(periodLabel().toLowerCase())}</span></div>
+    ${personTasksHTML(id)}`;
+  host.querySelectorAll("[data-opentask]").forEach(el=>el.addEventListener("click",()=>{
+    const t = TASKS.find(x=>x.id===el.dataset.opentask);
+    if(t){ closeDrawer(); openTaskModal(t.id); }
+  }));
 }
 function closeDrawer(){ $("#drawer").classList.remove("open"); $("#drawerScrim").classList.remove("open"); }
 
@@ -3373,7 +3972,8 @@ $("#drawerScrim").addEventListener("click",closeDrawer);
 $("#themeBtn").addEventListener("click",()=>{ state.theme=state.theme==="dark"?"light":"dark"; applyTheme(); });
 $("#notifBtn").addEventListener("click", toggleNotifications);
 $("#quickAdd").addEventListener("click",()=>{
-  if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
+  if(state.view==="kpis"){ if(teamPeople().length) openKpiModal(null); else toast("Nobody reports to you yet."); }
+  else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
   else openTaskModal(null,{});
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });
