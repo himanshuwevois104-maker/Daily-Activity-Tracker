@@ -487,30 +487,49 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .day-bar input[type=date]{padding:7px 10px; border-radius:9px; border:1px solid var(--border);
   background:var(--surface); font-size:12.5px; color:var(--ink); font-family:inherit}
 .day-bar .spacer{margin-left:auto}
-.up-person{border:1px solid var(--border); border-radius:12px; background:var(--surface);
-  margin-bottom:12px; overflow:hidden}
-.up-person .ph{display:flex; align-items:center; gap:10px; padding:10px 13px;
-  background:var(--surface-2); border-bottom:1px solid var(--border)}
-.up-person .ph .nm{font-size:13.5px; font-weight:650; color:var(--ink); cursor:pointer}
-.up-person .ph .nm:hover{color:var(--accent)}
-.up-person .ph .rl{font-size:11.5px; color:var(--muted)}
-.up-person .ph .cnt{margin-left:auto; font-size:11.5px; color:var(--ink2); white-space:nowrap}
-.up-task{padding:10px 13px 11px; border-bottom:1px solid var(--border)}
-.up-task:last-child{border-bottom:none}
-.up-task .th{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-.up-task .th .ic{font-size:13px; line-height:1; flex:none}
-.up-task .th .t{font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer}
-.up-task .th .t.dead{color:var(--muted); font-style:italic; cursor:default; font-weight:500}
-.up-task .th .t:not(.dead):hover{color:var(--accent); text-decoration:underline}
-.up-task .th .bd{font-size:11.5px; color:var(--muted)}
-.up-task .lines{margin:6px 0 0 21px; display:flex; flex-direction:column; gap:3px}
-.up-task .lines .l{font-size:12.5px; color:var(--ink2); display:flex; gap:9px; align-items:baseline}
-.up-task .lines .l .tm{color:var(--muted); font-variant-numeric:tabular-nums; flex:none; min-width:58px}
-.up-quiet{display:flex; flex-wrap:wrap; gap:7px}
-.up-quiet .qp{display:inline-flex; align-items:center; gap:7px; padding:4px 11px 4px 4px; border-radius:99px;
-  border:1px solid var(--border); background:var(--surface); font-size:12.5px; color:var(--ink2); cursor:pointer}
-.up-quiet .qp:hover{border-color:var(--accent); color:var(--ink)}
-.up-quiet .qp .av{display:inline-flex}
+/* Daily Update — one column per person, their cards, and what moved */
+.pboard{display:flex; gap:14px; overflow-x:auto; padding-bottom:18px; align-items:flex-start; margin-top:2px}
+.pcol{flex:0 0 292px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r);
+  padding:10px; display:flex; flex-direction:column; max-height:calc(100dvh - 340px)}
+.pcol.quiet{opacity:.74}
+.pcol-head{display:flex; align-items:center; gap:9px; padding:2px 3px 9px}
+.pcol-head .nm{font-weight:650; font-size:13px; line-height:1.25; cursor:pointer}
+.pcol-head .nm:hover{color:var(--accent)}
+.pcol-head .rl{font-size:11px; color:var(--muted)}
+.pcol-head .bell{margin-left:auto; flex:none; height:22px; padding:0 9px; border-radius:99px;
+  display:inline-flex; align-items:center; justify-content:center; white-space:nowrap;
+  font-size:11.5px; font-weight:750; background:var(--accent); color:#fff}
+.pcol-head .bell.none{background:var(--surface); color:var(--muted); border:1px solid var(--border); font-weight:600}
+.pcol-sub{font-size:11px; color:var(--muted); padding:0 3px 9px; margin-bottom:9px;
+  border-bottom:1px solid var(--border)}
+.pcol-body{overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:40px; flex:1}
+.uc{background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:10px 11px;
+  border-left:3px solid var(--pc,var(--baseline)); cursor:pointer; transition:.12s}
+.uc:hover{transform:translateY(-1px); box-shadow:var(--shadow-lg)}
+.uc .tt{font-weight:600; font-size:13px; line-height:1.32}
+.uc .tt .hd{font-size:11.5px}
+.uc.done-card .tt{text-decoration:line-through; color:var(--muted)}
+.uc .pz{font-size:11px; color:#8a6206; margin-top:4px}
+[data-theme="dark"] .uc .pz{color:var(--warning)}
+.uc .meta{display:flex; align-items:center; gap:5px; margin-top:7px; flex-wrap:wrap}
+.uc .meta .bd{font-size:10.5px; color:var(--muted)}
+.uc.hot{border-color:var(--accent)}
+.uc .upd{margin-top:9px; padding-top:7px; border-top:1px dashed var(--border)}
+.uc .upd .uh{font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.4px;
+  color:var(--accent); margin-bottom:5px}
+.uc .upd .l{display:flex; gap:7px; font-size:11.5px; color:var(--ink2); line-height:1.42; margin-bottom:3px}
+.uc .upd .l:last-child{margin-bottom:0}
+.uc .upd .l .tm{color:var(--muted); font-variant-numeric:tabular-nums; flex:none; min-width:52px}
+.uc .upd .l i{color:var(--muted); font-style:normal}
+.pcol-empty{font-size:11.5px; color:var(--muted); text-align:center; padding:15px 6px;
+  border:1.5px dashed var(--grid); border-radius:10px}
+.pcol.idle{flex:0 0 214px; background:transparent; border-style:dashed}
+.pcol.idle .pcol-head{padding-bottom:11px; border-bottom:1px solid var(--border); margin-bottom:9px}
+.idle-p{display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:9px; cursor:pointer}
+.idle-p:hover{background:var(--surface-2)}
+.idle-p .n{font-size:12.5px; font-weight:600; color:var(--ink2)}
+.idle-p .r{font-size:10.5px; color:var(--muted)}
+
 
 /* Section headers inside views */
 .sec-h{display:flex; align-items:center; gap:10px; margin:26px 0 13px}
@@ -541,6 +560,11 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
   .sec-h h2{flex:none}
   .day-bar .dnav{width:38px; height:38px}
   .day-bar .dttl{min-width:0}
+  .pcol{flex:0 0 84vw; max-width:310px; max-height:none}
+  .up-tiles{display:flex; overflow-x:auto; gap:10px; padding-bottom:4px}
+  .up-tiles .tile{flex:0 0 156px}
+  .up-tiles .tile .val{font-size:23px}
+  .up-tiles .tile .delta{font-size:10.5px}
 }
 </style>
 </head>
@@ -2462,131 +2486,143 @@ const upIcon = evs =>
   : evs.some(e=>e.kind==="moved"||e.kind==="resumed") ? "➡️"
   : evs.some(e=>e.kind==="comment")  ? "💬" : "✏️";
 
-/* actor -> (task -> that task's changes), in the order they happened.
-   Two tidying rules, both deliberate:
-   - an event with no actor left (the account was removed outright) is dropped,
-     so the counts on the tiles match the lines actually on screen;
+/* The day's changes, keyed by the task they happened to. Two tidying rules,
+   both deliberate:
+   - an event whose actor no longer exists is dropped, so the counts on the
+     tiles match the lines actually on screen;
    - moving a card Pause -> Done writes 'resumed' AND 'done' in one transaction.
-     That is one action by one person; printing both reads like two. */
-function upGroup(evs){
+     One action by one person; printing both reads like two. */
+function upByTask(evs){
   const rows = evs.filter((e,i)=>{
     if(!e.actor) return false;
     if(e.kind!=="resumed") return true;
     const n = evs[i+1];
     return !(n && n.kind==="done" && n.task===e.task && n.actor===e.actor && n.ts-e.ts < 3000);
   });
-  const byActor = new Map();
-  rows.forEach(e=>{
-    if(!byActor.has(e.actor)) byActor.set(e.actor, new Map());
-    const tasks = byActor.get(e.actor);
-    if(!tasks.has(e.task)) tasks.set(e.task, []);
-    tasks.get(e.task).push(e);
-  });
-  return byActor;
+  const m = new Map();
+  rows.forEach(e=>{ if(!m.has(e.task)) m.set(e.task,[]); m.get(e.task).push(e); });
+  return m;
 }
-const upCount = tasksMap => [...tasksMap.values()].reduce((n,a)=>n+a.length, 0);
+/* what needs doing first, when nothing moved today */
+const upDueRank = t => t.done ? 5 : !t.due ? 3 : t.due<TODAY ? 0 : t.due===TODAY ? 1 : 2;
 
-function upTaskBlock(tid, evs, actorId){
-  const t = TASKS.find(x=>x.id===tid);
-  const p = t ? PIPES.find(x=>x.id===t.pipe) : null;
-  /* only worth naming when somebody moved a card that is not their own */
-  const owner = (t && t.assignee !== actorId) ? U(t.assignee) : null;
-  return `<div class="up-task">
-    <div class="th">
-      <span class="ic">${upIcon(evs)}</span>
-      ${t ? `<span class="t" data-opentask="${esc(t.id)}">${esc(t.title)}</span>`
-          : `<span class="t dead">A task that is no longer there</span>`}
-      ${t ? `<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>` : ""}
-      ${p ? `<span class="bd">${esc(p.name)}</span>` : ""}
-      ${owner ? `<span class="bd">· assigned to ${esc(owner.name)}</span>` : ""}
+/* One card: the task as it stands, and underneath it whatever happened to it
+   on the day being looked at. */
+function upCard(t, evs, colUser, dayWord){
+  const p = PIPES.find(x=>x.id===t.pipe);
+  return `<div class="uc ${evs.length?"hot":""} ${t.done?"done-card":""}"
+       style="--pc:var(--s${p?p.color:1})" data-opentask="${esc(t.id)}">
+    <div class="tt">${evs.length?`<span class="hd">${upIcon(evs)}</span> `:""}${esc(t.title)}</div>
+    ${t.stage===STAGE_PAUSE?`<div class="pz">⏸️ ${esc(t.pauseReason||"no reason given")}</div>`:""}
+    <div class="meta">
+      ${t.done?"":`<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>`}
+      ${prChip(t.pr)}${dueChip(t)}
+      ${p?`<span class="bd">${esc(p.name)}</span>`:""}
     </div>
-    <div class="lines">${evs.map(e=>`<div class="l"><span class="tm">${esc(upTime(e.ts))}</span><span>${upLine(e)}</span></div>`).join("")}</div>
+    ${evs.length?`<div class="upd">
+      <div class="uh">${evs.length} update${evs.length!==1?"s":""} ${esc(dayWord)}</div>
+      ${evs.map(e=>`<div class="l"><span class="tm">${esc(upTime(e.ts))}</span>
+        <span>${upLine(e)}${e.actor!==colUser?` <i>— by ${esc(U(e.actor)?U(e.actor).name:"someone")}</i>`:""}</span></div>`).join("")}
+    </div>`:""}
   </div>`;
 }
-function upPersonCard(uid, tasksMap){
-  const u = U(uid);
-  const nEv = upCount(tasksMap), nTask = tasksMap.size;
-  const blocks = [...tasksMap.entries()]
-    .sort((a,b)=>b[1][b[1].length-1].ts - a[1][a[1].length-1].ts);   // last thing touched, first
-  return `<div class="up-person">
-    <div class="ph">
-      ${u ? avatar(u,"sm") : `<div class="av av-sm">?</div>`}
+
+/* One person, one column: their name, a badge counting the day's changes, then
+   every task of theirs that is still open (plus anything they closed that day),
+   with the ones that moved floated to the top. A person who did nothing still
+   gets a column - so you can see WHAT they are sitting on, not just that they
+   were quiet. */
+function upColumn(u, date, byTask, dayWord, isMe){
+  const evsOf = t => byTask.get(t.id) || [];
+  const cards = TASKS.filter(t=>t.assignee===u.id && (!t.done || t.doneOn===date))
+    .sort((a,b)=>{
+      const ea=evsOf(a), eb=evsOf(b);
+      if(!!eb.length !== !!ea.length) return eb.length?1:-1;             // moved today, first
+      if(ea.length && eb.length) return eb[eb.length-1].ts - ea[ea.length-1].ts;
+      return upDueRank(a)-upDueRank(b) || (a.due||"9").localeCompare(b.due||"9");
+    });
+  const n = cards.reduce((k,t)=>k+evsOf(t).length, 0);
+  const open = cards.filter(t=>!t.done).length;
+  const overdue = cards.filter(t=>!t.done && t.due && t.due<TODAY).length;
+  const paused = cards.filter(t=>t.stage===STAGE_PAUSE).length;
+  const bits = [`${open} open`];
+  if(overdue) bits.push(`${overdue} overdue`);
+  if(paused) bits.push(`${paused} paused`);
+  return {n, open, overdue, html:`<div class="pcol ${n?"":"quiet"}">
+    <div class="pcol-head">
+      ${avatar(u,"sm")}
       <div style="min-width:0">
-        <div class="nm"${u?` data-person="${esc(u.id)}"`:""}>${esc(u?u.name:"Someone")}${uid===state.me.id?" (you)":""}</div>
-        <div class="rl">${esc(u?titleOf(u):"account removed")}</div>
+        <div class="nm" data-person="${esc(u.id)}">${esc(u.name)}${isMe?" (you)":""}</div>
+        <div class="rl">${esc(titleOf(u))}</div>
       </div>
-      <div class="cnt">${nTask} task${nTask!==1?"s":""} · ${nEv} update${nEv!==1?"s":""}</div>
+      <span class="bell ${n?"":"none"}" title="${n?`${n} change${n===1?"":"s"} ${dayWord}`:`nothing logged ${dayWord}`}">${n?"🔔 "+n:"—"}</span>
     </div>
-    ${blocks.map(([tid,evs])=>upTaskBlock(tid,evs,uid)).join("")}
-  </div>`;
+    <div class="pcol-sub">${esc(bits.join(" · "))}${n?"":` · <b style="color:var(--muted)">nothing logged ${esc(dayWord)}</b>`}</div>
+    <div class="pcol-body">
+      ${cards.length ? cards.map(t=>upCard(t, evsOf(t), u.id, dayWord)).join("")
+                     : `<div class="pcol-empty">No open tasks on the board</div>`}
+    </div>
+  </div>`};
 }
 
 function upBodyHTML(date, evsAll){
   const me = state.me, people = teamPeople();
-  const teamIds = new Set(people.map(p=>p.id));
-  const byActor = upGroup(evsAll);
-  const flat = [...byActor.values()].flatMap(m=>[...m.values()].flat());
-  const teamActors  = [...byActor.keys()].filter(id=>teamIds.has(id))
-    .sort((a,b)=>upCount(byActor.get(b))-upCount(byActor.get(a)) || (U(a)?.name||"").localeCompare(U(b)?.name||""));
-  const otherActors = [...byActor.keys()].filter(id=>!teamIds.has(id))
-    .sort((a,b)=>(a===me.id?-1:b===me.id?1:0) || upCount(byActor.get(b))-upCount(byActor.get(a)));
-  const quiet = people.filter(p=>!byActor.has(p.id));
-  /* Two very different silences. Someone sitting on open work who logged
-     nothing is a person to ask about; someone with nothing open is not, and
-     lumping them together every day would train leadership to ignore the list. */
-  const hasOpen = u => TASKS.some(t=>t.assignee===u.id && !t.done);
-  const quietBusy = quiet.filter(hasOpen), quietFree = quiet.filter(u=>!hasOpen(u));
+  const byTask = upByTask(evsAll);
+  const flat = [...byTask.values()].flat();
   const dayWord = date===TODAY ? "so far today" : "on "+fmtDate(date);
 
-  const tiles = `<div class="grid g-kpis">
+  const built = people.map(u=>Object.assign({u}, upColumn(u, date, byTask, dayWord, false)));
+  /* Busiest first, then whoever is carrying the most work. Somebody with
+     nothing on the board at all is not a column worth 292px of a leader's
+     screen every morning - those names go in one narrow strip at the end. */
+  const active = built.filter(c=>c.n>0 || c.open>0)
+    .sort((a,b)=> b.n-a.n || b.overdue-a.overdue || b.open-a.open || a.u.name.localeCompare(b.u.name));
+  const idle = built.filter(c=>c.n===0 && c.open===0);
+  /* your own work goes last, after the team you are reading about */
+  const own = upColumn(me, date, byTask, dayWord, true);
+  const ownHasSomething = own.n > 0 || own.open > 0;
+
+  const updatedN = built.filter(c=>c.n>0).length;
+  const doneN   = flat.filter(e=>e.kind==="done").length;
+  const pausedN = flat.filter(e=>e.kind==="paused").length;
+  const quietBusy = people.filter(u=>!TASKS.some(t=>t.assignee===u.id && byTask.has(t.id))
+                                  && TASKS.some(t=>t.assignee===u.id && !t.done)).length;
+
+  const tiles = `<div class="grid g-kpis up-tiles">
     <div class="card tile"><div class="lbl">People who updated</div>
-      <div class="val">${teamActors.length}<span style="font-size:15px;color:var(--muted)"> of ${people.length}</span></div>
-      <div class="delta ${quietBusy.length?"down":""}">${quietBusy.length?`${quietBusy.length} with open work and nothing logged`:"nobody with open work went quiet"}</div></div>
+      <div class="val">${updatedN}<span style="font-size:15px;color:var(--muted)"> of ${people.length}</span></div>
+      <div class="delta ${quietBusy?"down":""}">${quietBusy?`${quietBusy} with open work and nothing logged`:"nobody with open work went quiet"}</div></div>
     <div class="card tile"><div class="lbl">Updates</div><div class="val">${flat.length}</div>
       <div class="delta">changes recorded ${esc(dayWord)}</div></div>
-    <div class="card tile"><div class="lbl">Tasks touched</div>
-      <div class="val">${new Set(flat.map(e=>e.task)).size}</div><div class="delta">distinct tasks</div></div>
+    <div class="card tile"><div class="lbl">Tasks touched</div><div class="val">${byTask.size}</div>
+      <div class="delta">distinct tasks</div></div>
     <div class="card tile"><div class="lbl">Completed</div>
-      <div class="val" style="${flat.filter(e=>e.kind==="done").length?"color:var(--good)":""}">${flat.filter(e=>e.kind==="done").length}</div>
+      <div class="val" style="${doneN?"color:var(--good)":""}">${doneN}</div>
       <div class="delta">marked done ${esc(dayWord)}</div></div>
     <div class="card tile"><div class="lbl">Paused</div>
-      <div class="val" style="${flat.filter(e=>e.kind==="paused").length?"color:var(--warning)":""}">${flat.filter(e=>e.kind==="paused").length}</div>
-      <div class="delta">${flat.filter(e=>e.kind==="paused").length?"a reason is on each one":"nothing blocked"}</div></div>
+      <div class="val" style="${pausedN?"color:var(--warning)":""}">${pausedN}</div>
+      <div class="delta">${pausedN?"a reason is on each one":"nothing blocked"}</div></div>
   </div>`;
 
-  const chips = list => `<div class="up-quiet">${list.map(u=>
-    `<span class="qp" data-person="${esc(u.id)}">${avatar(u,"sm")}<span>${esc(u.name)}</span></span>`).join("")}</div>`;
-  const quietCard = quiet.length ? `
-    <div class="card card-pad" style="margin-top:16px">
-      <div class="card-head"><div><h3>Nothing logged ${esc(dayWord)}</h3>
-        <div class="sub">${quietBusy.length
-          ? `${quietBusy.length} ${quietBusy.length===1?"person has":"people have"} open work and did not move it — click a name to see where it stands`
-          : "everybody with open work logged something"}</div></div></div>
-      ${quietBusy.length ? chips(quietBusy) : ""}
-      ${quietFree.length ? `<div style="${quietBusy.length?"margin-top:14px; padding-top:13px; border-top:1px solid var(--border)":""}">
-        <div style="font-size:12px; color:var(--muted); margin-bottom:8px">
-          Nothing open on the board — no task of theirs is waiting to be moved</div>
-        ${chips(quietFree)}</div>` : ""}
-    </div>` : "";
-
-  if(!flat.length) return `${tiles}
-    <div class="card card-pad" style="margin-top:16px; text-align:center; padding:38px 24px">
-      <div style="font-size:26px; margin-bottom:8px">🗓️</div>
-      <b style="font-size:14.5px">No updates recorded on ${esc(fmtDateLong(date))}</b>
-      <div style="color:var(--muted); font-size:13px; margin-top:5px">
-        Nobody moved, created or commented on a task that day.${date===TODAY?" It is still early — the screen fills as people work.":""}</div>
-    </div>${quietCard}`;
+  if(!people.length) return `${tiles}<div class="card card-pad" style="margin-top:16px">Nobody reports to you yet.</div>`;
 
   return `${tiles}
-    ${teamActors.length ? `
-      <div class="sec-h"><h2>Your team</h2>
-        <div class="sub">${teamActors.length} ${teamActors.length===1?"person":"people"} updated something ${esc(dayWord)}</div></div>
-      ${teamActors.map(id=>upPersonCard(id, byActor.get(id))).join("")}` : ""}
-    ${otherActors.length ? `
-      <div class="sec-h"><h2>${teamActors.length?"Also updated":"Updates"}</h2>
-        <div class="sub">You, and anyone else working on a board you can see</div></div>
-      ${otherActors.map(id=>upPersonCard(id, byActor.get(id))).join("")}` : ""}
-    ${quietCard}`;
+    <div class="sec-h"><h2>Your team</h2>
+      <div class="sub">One column per person &middot; a card with 🔔 moved ${esc(dayWord)} &middot; click any card to open it</div></div>
+    <div class="pboard">
+      ${active.map(c=>c.html).join("")}
+      ${ownHasSomething ? own.html : ""}
+      ${idle.length ? `<div class="pcol idle">
+        <div class="pcol-head"><div style="min-width:0">
+          <div class="nm" style="cursor:default">Nothing on the board</div>
+          <div class="rl">${idle.length} ${idle.length===1?"person has":"people have"} no open task waiting to be moved</div>
+        </div></div>
+        <div class="pcol-body">${idle.map(c=>
+          `<div class="idle-p" data-person="${esc(c.u.id)}">${avatar(c.u,"sm")}
+            <div style="min-width:0"><div class="n">${esc(c.u.name)}</div>
+            <div class="r">${esc(titleOf(c.u))}</div></div></div>`).join("")}</div>
+      </div>` : ""}
+    </div>`;
 }
 
 async function upFill(date){
@@ -2654,10 +2690,10 @@ function renderPipelines(){
   if(state.fSearch) tasks=tasks.filter(t=>t.title.toLowerCase().includes(state.fSearch.toLowerCase()));
   if(!state.showDone) tasks=tasks.filter(t=>!t.done);
 
-  /* With more than a handful of boards the old tab row became a wall - which is
-     exactly what a CEO or VP sees. Past four boards it becomes a picker grouped
-     by department, and the filters fold away until they are wanted. */
-  const many = pipes.length > 4;
+  /* One picker, always. The tab row it replaced changed shape the moment
+     somebody made a fifth board, so the same screen looked different on two
+     people's accounts. A dropdown naming the board, its department and its open
+     count reads identically whether you have two boards or twenty. */
   const byDept = {};
   pipes.forEach(p=>{ (byDept[p.dept] = byDept[p.dept] || []).push(p); });
   const openN = pid => visibleTasks(me).filter(t=>t.pipe===pid && !t.done).length;
@@ -2666,23 +2702,17 @@ function renderPipelines(){
 
   $("#view").innerHTML = `
   <div class="board-head">
-    ${many
-      ? `<select id="pipePick" class="board-pick">
-           ${Object.keys(byDept).sort().map(dp=>`<optgroup label="${esc(dp)}">
-             ${byDept[dp].map(p=>`<option value="${p.id}" ${p.id===state.pipe?"selected":""}>${esc(p.name)} — ${openN(p.id)} open</option>`).join("")}
-           </optgroup>`).join("")}
-         </select>`
-      : `<div class="pipe-tabs" style="margin:0">
-           ${pipes.map(p=>`<button class="pipe-tab ${p.id===state.pipe?"active":""}" data-pipe="${p.id}">
-             <span class="pdot" style="background:var(--s${p.color})"></span>${esc(p.name)}
-             <span style="color:var(--muted);font-weight:600">${openN(p.id)}</span></button>`).join("")}
-         </div>`}
+    <select id="pipePick" class="board-pick">
+      ${Object.keys(byDept).sort().map(dp=>`<optgroup label="${esc(dp)}">
+        ${byDept[dp].map(p=>`<option value="${p.id}" ${p.id===state.pipe?"selected":""}>${esc(p.name)} — ${openN(p.id)} open</option>`).join("")}
+      </optgroup>`).join("")}
+    </select>
     <div class="grow"></div>
     <button class="btn sm" id="fToggle">⚙ Filters${activeFilters?` <span class="cnt">${activeFilters}</span>`:""}</button>
     ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit board</button>`:""}
     ${canCreatePipeline(me)?`<button class="btn sm primary" data-act="newPipe">＋ New board</button>`:""}
   </div>
-  ${many?`<div class="board-sub">${esc(pipe.dept)} · ${openN(pipe.id)} open of ${visibleTasks(me).filter(t=>t.pipe===pipe.id).length}</div>`:""}
+  <div class="board-sub">${esc(pipe.dept)} · ${openN(pipe.id)} open of ${visibleTasks(me).filter(t=>t.pipe===pipe.id).length}</div>
   <div class="filters" id="filterRow" style="display:${state.showFilters||activeFilters?"flex":"none"}">
     <input type="search" id="fSearch" placeholder="Search tasks…" value="${esc(state.fSearch)}">
     <select id="fAssignee"><option value="all">Everyone</option>
