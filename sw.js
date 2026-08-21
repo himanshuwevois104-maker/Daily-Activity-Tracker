@@ -1,5 +1,5 @@
 /* Network-first so a redeploy lands immediately; cache is only a fallback. */
-const CACHE = 'wevois-tracker-v2';
+const CACHE = 'wevois-tracker-v3';   /* bumped with the Daily Update screen */
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))

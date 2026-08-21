@@ -1,7 +1,8 @@
 # WeVois — Daily Activity Tracker
 
-Internal team tracker: daily tasks on fixed stages, documents, team groups, and a
-CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
+Internal team tracker: daily tasks on fixed stages, a day-by-day **Daily Update**
+read-out for anyone with a team, documents, team groups, and a CEO → VP →
+Manager → Team Member hierarchy with admin-managed job roles.
 
 ## Before this site will work
 
@@ -21,6 +22,8 @@ CEO → VP → Manager → Team Member hierarchy with admin-managed job roles.
    task timeline and the Groups tab just say they aren't switched on.
 2. **Fill in `supabase-config.js`.** Paste your Supabase Project URL and the
    **anon public** key. Never the `service_role` key.
+   The **Daily Update** screen needs no migration of its own — it reads the
+   task history that `TRACKER-UPDATE-03.sql` already records.
 3. In Supabase → Authentication → Providers → Email: **Confirm email OFF**,
    and leave **sign-ups ON** (safe — a signup with no invite gets no profile
    and can read nothing).

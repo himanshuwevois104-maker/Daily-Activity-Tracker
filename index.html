@@ -474,6 +474,44 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .doc-name{font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer; word-break:break-word}
 .doc-name:hover{color:var(--accent); text-decoration:underline}
 
+/* Daily Update — one day at a time: who moved what, and who did not */
+.day-bar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface);
+  border:1px solid var(--border); border-radius:12px; padding:9px 12px; margin-bottom:16px}
+.day-bar .dnav{width:32px; height:32px; flex:none; display:flex; align-items:center; justify-content:center;
+  border-radius:9px; border:1px solid var(--border); background:var(--surface); cursor:pointer;
+  font-size:17px; line-height:1; color:var(--ink2); font-family:inherit}
+.day-bar .dnav:hover:not(:disabled){background:var(--surface-2); color:var(--ink)}
+.day-bar .dnav:disabled{opacity:.32; cursor:default}
+.day-bar .dttl{font-size:14.5px; font-weight:650; color:var(--ink); min-width:172px; line-height:1.25}
+.day-bar .dttl small{display:block; font-size:11.5px; font-weight:500; color:var(--muted)}
+.day-bar input[type=date]{padding:7px 10px; border-radius:9px; border:1px solid var(--border);
+  background:var(--surface); font-size:12.5px; color:var(--ink); font-family:inherit}
+.day-bar .spacer{margin-left:auto}
+.up-person{border:1px solid var(--border); border-radius:12px; background:var(--surface);
+  margin-bottom:12px; overflow:hidden}
+.up-person .ph{display:flex; align-items:center; gap:10px; padding:10px 13px;
+  background:var(--surface-2); border-bottom:1px solid var(--border)}
+.up-person .ph .nm{font-size:13.5px; font-weight:650; color:var(--ink); cursor:pointer}
+.up-person .ph .nm:hover{color:var(--accent)}
+.up-person .ph .rl{font-size:11.5px; color:var(--muted)}
+.up-person .ph .cnt{margin-left:auto; font-size:11.5px; color:var(--ink2); white-space:nowrap}
+.up-task{padding:10px 13px 11px; border-bottom:1px solid var(--border)}
+.up-task:last-child{border-bottom:none}
+.up-task .th{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.up-task .th .ic{font-size:13px; line-height:1; flex:none}
+.up-task .th .t{font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer}
+.up-task .th .t.dead{color:var(--muted); font-style:italic; cursor:default; font-weight:500}
+.up-task .th .t:not(.dead):hover{color:var(--accent); text-decoration:underline}
+.up-task .th .bd{font-size:11.5px; color:var(--muted)}
+.up-task .lines{margin:6px 0 0 21px; display:flex; flex-direction:column; gap:3px}
+.up-task .lines .l{font-size:12.5px; color:var(--ink2); display:flex; gap:9px; align-items:baseline}
+.up-task .lines .l .tm{color:var(--muted); font-variant-numeric:tabular-nums; flex:none; min-width:58px}
+.up-quiet{display:flex; flex-wrap:wrap; gap:7px}
+.up-quiet .qp{display:inline-flex; align-items:center; gap:7px; padding:4px 11px 4px 4px; border-radius:99px;
+  border:1px solid var(--border); background:var(--surface); font-size:12.5px; color:var(--ink2); cursor:pointer}
+.up-quiet .qp:hover{border-color:var(--accent); color:var(--ink)}
+.up-quiet .qp .av{display:inline-flex}
+
 /* Section headers inside views */
 .sec-h{display:flex; align-items:center; gap:10px; margin:26px 0 13px}
 .sec-h h2{font-size:16px}
@@ -498,6 +536,11 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
   #topbar{padding:10px 16px}
   #view{padding:16px 16px 120px}
   .col{max-height:60dvh}
+  /* a two-word heading should not break in half to make room for its subtitle */
+  .sec-h{flex-wrap:wrap; gap:2px 10px}
+  .sec-h h2{flex:none}
+  .day-bar .dnav{width:38px; height:38px}
+  .day-bar .dttl{min-width:0}
 }
 </style>
 </head>
@@ -722,6 +765,7 @@ const state = {
   period:"today",// window the team summary and the report cover
   kpiMonth:null, // month shown on the KPI screen (set at sign-in)
   reviewOf:null, // the person open on the review screen
+  upDate:null,   // the day open on the Daily Update screen (set at sign-in)
   adminTab:"accounts",
 };
 
@@ -906,6 +950,7 @@ const IC = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="12" width="7.5" height="9" rx="1.6"/><rect x="3" y="15.5" width="7.5" height="5.5" rx="1.6"/></svg>',
   pipe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 5v13a1.5 1.5 0 0 0 1.5 1.5H8M4 5l4 0M20 5v7a1.5 1.5 0 0 1-1.5 1.5H16"/><rect x="8" y="9" width="8" height="12" rx="1.5"/></svg>',
   log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5z"/><path d="M5 4v16M9 9h5M9 13h5"/></svg>',
+  day:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="4.8" width="17.6" height="16" rx="2.4"/><path d="M3.2 9.8h17.6M8 3.2v3.2M16 3.2v3.2M8.9 14.6l2.2 2.2 4.1-4.3"/></svg>',
   review:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="7.5" r="3.2"/><path d="M4.5 19c.5-3 2.8-4.8 6-4.8 1 0 1.9.2 2.7.5"/><path d="M15.5 15.5l2 2 3.5-3.8"/></svg>',
   kpi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>',
   doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/><path d="M9 13h6M9 16.5h4"/></svg>',
@@ -1142,6 +1187,9 @@ function evPlain(e, who){
 const notifSeen = new Set();
 async function onTaskEventLive(payload){
   const row = payload && payload.new; if(!row) return;
+  /* Before anything else: the Daily Update screen caches a day's history, and
+     this row is history. Drop that day so it cannot go stale behind them. */
+  upCacheDrop(row.created_at);
   if(notifSeen.has(row.id)) return;                 // realtime can deliver twice
   notifSeen.add(row.id);
   if(notifSeen.size > 400) notifSeen.clear();
@@ -1198,11 +1246,16 @@ const NAVS = [
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
 const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
-  kpis:"KPIs", documents:"Documents", groups:"Groups", team:"Team",
+  dailyup:"Daily Update", kpis:"KPIs", documents:"Documents", groups:"Groups", team:"Team",
   review:"Employee review", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
-  if(teamPeople().length) n.push({id:"review", label:"Review", ic:IC.review});
+  /* Daily Update sits straight after the board, and only for people who have
+     somebody under them - it is a leadership read-out, not a personal screen. */
+  if(teamPeople().length){
+    n.splice(2, 0, {id:"dailyup", label:"Daily Update", ic:IC.day});
+    n.push({id:"review", label:"Review", ic:IC.review});
+  }
   if(GROUPS_READY && (myGroups().length || canRunGroups(me)))
     n.push({id:"groups", label:"Groups", ic:IC.chat, count:unreadTotal()});
   if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
@@ -1308,7 +1361,7 @@ async function afterLogin(){
   state.me = USERS.find(u=>u.id===user.id);
   if(!state.me || !state.me.active){ renderNoProfile(user.email); return; }
   state.view="dashboard"; state.logWho=null; state.docWho=null; state.adminTab="accounts";
-  state.kpiMonth = THIS_MONTH;
+  state.kpiMonth = THIS_MONTH; state.upDate = TODAY;
   state.fAssignee="all"; state.fPriority="all"; state.fSearch="";
   const vp = visiblePipes(state.me); state.pipe = vp[0]?.id || null;
   $("#login").classList.add("hidden");
@@ -1367,15 +1420,18 @@ function render(){
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
+    : state.view==="dailyup" ? "One day at a time — who updated what, and who did not"
     : state.view==="kpis" ? "Targets are set from above; the figure you achieved is yours to update"
     : state.view==="review" ? "One person, one period — everything you need for the conversation"
     : fmtDateLong(TODAY);
   $("#quickAdd").classList.toggle("hidden",
-    state.view==="admin"||state.view==="requests"||state.view==="groups"||state.view==="review");
+    state.view==="admin"||state.view==="requests"||state.view==="groups"
+    ||state.view==="review"||state.view==="dailyup");
   $("#quickAddLbl").textContent = state.view==="documents" ? "Add document"
     : state.view==="kpis" ? "Set targets" : "New task";
   applyTheme(); paintNotifBtn();
-  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily, kpis:renderKpis,
+  ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily,
+    dailyup:renderDailyUp, kpis:renderKpis,
     documents:renderDocs, groups:renderGroups, team:renderTeam, review:renderReview,
     admin:renderAdmin, requests:renderRequests}[state.view])();
 }
@@ -2331,6 +2387,249 @@ function myDayList(){
         <div class="sub">${esc(p?.name||"")} · ${esc(t.stage)}</div></div>
       <div class="right">${dueChip(t)}</div>
     </div>`;}).join("");
+}
+
+/* ================= Daily Update — one day, who moved what =================
+   Leadership asked to see the day's work day by day: on 20 August this screen
+   shows 20 August; the next morning it opens on 21 August, and 20 August is
+   one click back. It reads dat_task_events — the history the database already
+   writes on every change — for the chosen day only. So there is nothing extra
+   to fill in, and nothing anybody can forget to fill in. Row-level security
+   decides what comes back: a manager sees their own branch, a VP theirs, the
+   CEO everyone. The browser does no filtering the database has not already done. */
+const UPCACHE = {};                    // date -> that day's events, so stepping back is instant
+let upToken = 0, upTimer = null;
+
+async function loadDayEvents(date){
+  if(UPCACHE[date]) return UPCACHE[date];
+  const from = new Date(date+"T00:00:00");            // local midnight, not UTC midnight
+  const to   = new Date(from.getTime()+DAY);
+  const {data,error} = await sb.from("dat_task_events").select("*")
+    .gte("created_at", from.toISOString()).lt("created_at", to.toISOString())
+    .order("created_at",{ascending:true}).limit(3000);
+  if(error) throw error;
+  const rows = (data||[]).map(mapTEv).sort((a,b)=>a.ts-b.ts || a.seq-b.seq);
+  UPCACHE[date] = rows;
+  return rows;
+}
+/* A colleague changing something while this screen is open makes the cached
+   day wrong. Drop it, and repaint if that is the day being looked at. */
+function upCacheDrop(createdAt){
+  if(!createdAt) return;
+  const d = iso(new Date(createdAt));
+  delete UPCACHE[d];
+  if(state.me && state.view==="dailyup" && (state.upDate||TODAY)===d && !$("#overlayHost").innerHTML){
+    clearTimeout(upTimer);
+    upTimer = setTimeout(()=>{ if(state.view==="dailyup") upFill(state.upDate||TODAY); }, 900);
+  }
+}
+
+const upDayWord = d => d===TODAY ? "Today" : d===dOff(-1) ? "Yesterday"
+  : (n => n>1 ? n+" days ago" : fmtDate(d))(Math.round((todayD - new Date(d+"T00:00:00"))/DAY));
+const upTime = ts => new Date(ts).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});
+
+function upSet(d){ if(!d) return; state.upDate = d > TODAY ? TODAY : d; renderDailyUp(); }
+function upGo(step){
+  const base = new Date((state.upDate||TODAY)+"T00:00:00");
+  upSet(iso(new Date(base.getTime()+step*DAY)));
+}
+
+/* one line per change, written for someone reading a person's day - so no name
+   in front of it, unlike the timeline on the task itself */
+function upLine(e){
+  const b = s => `<b style="color:var(--ink)">${esc(s??"—")}</b>`;
+  switch(e.kind){
+    case "created":  return `Created it in ${b(e.to)}`;
+    case "moved":    return `Moved ${b(e.from)} → ${b(e.to)}`;
+    case "assigned": return `Reassigned ${e.from?`from ${b(e.from)} `:""}to ${b(e.to)}`;
+    case "priority": return `Changed priority ${b(e.from)} → ${b(e.to)}`;
+    case "due":      return e.to ? `Set the due date to ${b(fmtDate(e.to))}` : "Removed the due date";
+    case "renamed":  return `Renamed it from ${b(e.from)}`;
+    case "edited":   return "Edited the notes";
+    case "paused":   return `Paused it — ${b(e.note||"no reason given")}`;
+    case "resumed":  return `Resumed it → ${b(e.to)}`;
+    case "done":     return "Marked it done";
+    case "reopened": return "Reopened it";
+    case "comment":  return `Added a note${e.note?`: ${esc(e.note.length>110?e.note.slice(0,110)+"…":e.note)}`:""}`;
+    default:         return "Made a change";
+  }
+}
+const upIcon = evs =>
+    evs.some(e=>e.kind==="done")     ? "✅"
+  : evs.some(e=>e.kind==="reopened") ? "↩️"
+  : evs.some(e=>e.kind==="paused")   ? "⏸️"
+  : evs.some(e=>e.kind==="created")  ? "✨"
+  : evs.some(e=>e.kind==="moved"||e.kind==="resumed") ? "➡️"
+  : evs.some(e=>e.kind==="comment")  ? "💬" : "✏️";
+
+/* actor -> (task -> that task's changes), in the order they happened.
+   Two tidying rules, both deliberate:
+   - an event with no actor left (the account was removed outright) is dropped,
+     so the counts on the tiles match the lines actually on screen;
+   - moving a card Pause -> Done writes 'resumed' AND 'done' in one transaction.
+     That is one action by one person; printing both reads like two. */
+function upGroup(evs){
+  const rows = evs.filter((e,i)=>{
+    if(!e.actor) return false;
+    if(e.kind!=="resumed") return true;
+    const n = evs[i+1];
+    return !(n && n.kind==="done" && n.task===e.task && n.actor===e.actor && n.ts-e.ts < 3000);
+  });
+  const byActor = new Map();
+  rows.forEach(e=>{
+    if(!byActor.has(e.actor)) byActor.set(e.actor, new Map());
+    const tasks = byActor.get(e.actor);
+    if(!tasks.has(e.task)) tasks.set(e.task, []);
+    tasks.get(e.task).push(e);
+  });
+  return byActor;
+}
+const upCount = tasksMap => [...tasksMap.values()].reduce((n,a)=>n+a.length, 0);
+
+function upTaskBlock(tid, evs, actorId){
+  const t = TASKS.find(x=>x.id===tid);
+  const p = t ? PIPES.find(x=>x.id===t.pipe) : null;
+  /* only worth naming when somebody moved a card that is not their own */
+  const owner = (t && t.assignee !== actorId) ? U(t.assignee) : null;
+  return `<div class="up-task">
+    <div class="th">
+      <span class="ic">${upIcon(evs)}</span>
+      ${t ? `<span class="t" data-opentask="${esc(t.id)}">${esc(t.title)}</span>`
+          : `<span class="t dead">A task that is no longer there</span>`}
+      ${t ? `<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>` : ""}
+      ${p ? `<span class="bd">${esc(p.name)}</span>` : ""}
+      ${owner ? `<span class="bd">· assigned to ${esc(owner.name)}</span>` : ""}
+    </div>
+    <div class="lines">${evs.map(e=>`<div class="l"><span class="tm">${esc(upTime(e.ts))}</span><span>${upLine(e)}</span></div>`).join("")}</div>
+  </div>`;
+}
+function upPersonCard(uid, tasksMap){
+  const u = U(uid);
+  const nEv = upCount(tasksMap), nTask = tasksMap.size;
+  const blocks = [...tasksMap.entries()]
+    .sort((a,b)=>b[1][b[1].length-1].ts - a[1][a[1].length-1].ts);   // last thing touched, first
+  return `<div class="up-person">
+    <div class="ph">
+      ${u ? avatar(u,"sm") : `<div class="av av-sm">?</div>`}
+      <div style="min-width:0">
+        <div class="nm"${u?` data-person="${esc(u.id)}"`:""}>${esc(u?u.name:"Someone")}${uid===state.me.id?" (you)":""}</div>
+        <div class="rl">${esc(u?titleOf(u):"account removed")}</div>
+      </div>
+      <div class="cnt">${nTask} task${nTask!==1?"s":""} · ${nEv} update${nEv!==1?"s":""}</div>
+    </div>
+    ${blocks.map(([tid,evs])=>upTaskBlock(tid,evs,uid)).join("")}
+  </div>`;
+}
+
+function upBodyHTML(date, evsAll){
+  const me = state.me, people = teamPeople();
+  const teamIds = new Set(people.map(p=>p.id));
+  const byActor = upGroup(evsAll);
+  const flat = [...byActor.values()].flatMap(m=>[...m.values()].flat());
+  const teamActors  = [...byActor.keys()].filter(id=>teamIds.has(id))
+    .sort((a,b)=>upCount(byActor.get(b))-upCount(byActor.get(a)) || (U(a)?.name||"").localeCompare(U(b)?.name||""));
+  const otherActors = [...byActor.keys()].filter(id=>!teamIds.has(id))
+    .sort((a,b)=>(a===me.id?-1:b===me.id?1:0) || upCount(byActor.get(b))-upCount(byActor.get(a)));
+  const quiet = people.filter(p=>!byActor.has(p.id));
+  /* Two very different silences. Someone sitting on open work who logged
+     nothing is a person to ask about; someone with nothing open is not, and
+     lumping them together every day would train leadership to ignore the list. */
+  const hasOpen = u => TASKS.some(t=>t.assignee===u.id && !t.done);
+  const quietBusy = quiet.filter(hasOpen), quietFree = quiet.filter(u=>!hasOpen(u));
+  const dayWord = date===TODAY ? "so far today" : "on "+fmtDate(date);
+
+  const tiles = `<div class="grid g-kpis">
+    <div class="card tile"><div class="lbl">People who updated</div>
+      <div class="val">${teamActors.length}<span style="font-size:15px;color:var(--muted)"> of ${people.length}</span></div>
+      <div class="delta ${quietBusy.length?"down":""}">${quietBusy.length?`${quietBusy.length} with open work and nothing logged`:"nobody with open work went quiet"}</div></div>
+    <div class="card tile"><div class="lbl">Updates</div><div class="val">${flat.length}</div>
+      <div class="delta">changes recorded ${esc(dayWord)}</div></div>
+    <div class="card tile"><div class="lbl">Tasks touched</div>
+      <div class="val">${new Set(flat.map(e=>e.task)).size}</div><div class="delta">distinct tasks</div></div>
+    <div class="card tile"><div class="lbl">Completed</div>
+      <div class="val" style="${flat.filter(e=>e.kind==="done").length?"color:var(--good)":""}">${flat.filter(e=>e.kind==="done").length}</div>
+      <div class="delta">marked done ${esc(dayWord)}</div></div>
+    <div class="card tile"><div class="lbl">Paused</div>
+      <div class="val" style="${flat.filter(e=>e.kind==="paused").length?"color:var(--warning)":""}">${flat.filter(e=>e.kind==="paused").length}</div>
+      <div class="delta">${flat.filter(e=>e.kind==="paused").length?"a reason is on each one":"nothing blocked"}</div></div>
+  </div>`;
+
+  const chips = list => `<div class="up-quiet">${list.map(u=>
+    `<span class="qp" data-person="${esc(u.id)}">${avatar(u,"sm")}<span>${esc(u.name)}</span></span>`).join("")}</div>`;
+  const quietCard = quiet.length ? `
+    <div class="card card-pad" style="margin-top:16px">
+      <div class="card-head"><div><h3>Nothing logged ${esc(dayWord)}</h3>
+        <div class="sub">${quietBusy.length
+          ? `${quietBusy.length} ${quietBusy.length===1?"person has":"people have"} open work and did not move it — click a name to see where it stands`
+          : "everybody with open work logged something"}</div></div></div>
+      ${quietBusy.length ? chips(quietBusy) : ""}
+      ${quietFree.length ? `<div style="${quietBusy.length?"margin-top:14px; padding-top:13px; border-top:1px solid var(--border)":""}">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:8px">
+          Nothing open on the board — no task of theirs is waiting to be moved</div>
+        ${chips(quietFree)}</div>` : ""}
+    </div>` : "";
+
+  if(!flat.length) return `${tiles}
+    <div class="card card-pad" style="margin-top:16px; text-align:center; padding:38px 24px">
+      <div style="font-size:26px; margin-bottom:8px">🗓️</div>
+      <b style="font-size:14.5px">No updates recorded on ${esc(fmtDateLong(date))}</b>
+      <div style="color:var(--muted); font-size:13px; margin-top:5px">
+        Nobody moved, created or commented on a task that day.${date===TODAY?" It is still early — the screen fills as people work.":""}</div>
+    </div>${quietCard}`;
+
+  return `${tiles}
+    ${teamActors.length ? `
+      <div class="sec-h"><h2>Your team</h2>
+        <div class="sub">${teamActors.length} ${teamActors.length===1?"person":"people"} updated something ${esc(dayWord)}</div></div>
+      ${teamActors.map(id=>upPersonCard(id, byActor.get(id))).join("")}` : ""}
+    ${otherActors.length ? `
+      <div class="sec-h"><h2>${teamActors.length?"Also updated":"Updates"}</h2>
+        <div class="sub">You, and anyone else working on a board you can see</div></div>
+      ${otherActors.map(id=>upPersonCard(id, byActor.get(id))).join("")}` : ""}
+    ${quietCard}`;
+}
+
+async function upFill(date){
+  const host = $("#upBody"); if(!host) return;
+  const my = ++upToken;
+  if(!UPCACHE[date])
+    host.innerHTML = `<div class="card card-pad" style="color:var(--muted); font-size:13px">Loading ${esc(fmtDate(date))}…</div>`;
+  let evs;
+  try{ evs = await loadDayEvents(date); }
+  catch(e){
+    if(my!==upToken || state.view!=="dailyup") return;
+    console.error(e);
+    host.innerHTML = `<div class="card card-pad">
+      <b style="font-size:14px">Could not load that day.</b>
+      <div style="color:var(--muted); font-size:13px; margin-top:6px">${esc(e.message||String(e))}</div></div>`;
+    return;
+  }
+  if(my!==upToken || state.view!=="dailyup") return;
+  host.innerHTML = upBodyHTML(date, evs);
+  wireCommon();
+}
+
+function renderDailyUp(){
+  const me = state.me;
+  if(!teamPeople().length){ state.view="dashboard"; render(); return; }   // not a screen for a member
+  if(!state.upDate) state.upDate = TODAY;
+  const date = state.upDate, isToday = date===TODAY;
+  $("#view").innerHTML = `
+  <div class="day-bar">
+    <button class="dnav" id="upPrev" title="Previous day" aria-label="Previous day">‹</button>
+    <div class="dttl">${esc(fmtDateLong(date))}<small>${esc(upDayWord(date))}</small></div>
+    <button class="dnav" id="upNext" title="Next day" aria-label="Next day" ${isToday?"disabled":""}>›</button>
+    ${isToday?"":`<button class="btn sm" id="upToday">Jump to today</button>`}
+    <div class="spacer"></div>
+    <label style="font-size:12px;color:var(--muted)">Pick a day
+      <input type="date" id="upPick" value="${date}" max="${TODAY}"></label>
+  </div>
+  <div id="upBody"></div>`;
+  $("#upPrev").addEventListener("click", ()=>upGo(-1));
+  $("#upNext").addEventListener("click", ()=>upGo(1));
+  const tb = $("#upToday"); if(tb) tb.addEventListener("click", ()=>upSet(TODAY));
+  $("#upPick").addEventListener("change", e=>upSet(e.target.value));
+  upFill(date);
 }
 
 /* ================= daily tasks (the board) ================= */
