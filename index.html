@@ -643,7 +643,8 @@ const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{labe
 /* ---------------- live data, loaded from Supabase ---------------- */
 let DEPTS = [], ROLES = [], USERS = [], PIPES = [], TASKS = [],
     LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [],
-    GROUPS = [], GMEMS = [], MSGS = [], KPIS = [], KTARGETS = [];
+    GROUPS = [], GMEMS = [], MSGS = [], KPIS = [], KTARGETS = [],
+    LEGAL = [], LEGAL_FILES = [];
 const U = id => USERS.find(u=>u.id===id);
 
 /* ---------------- Supabase ---------------- */
@@ -677,10 +678,14 @@ async function guard(fn, okMsg){
 /* private_pipes arrives only once TRACKER-UPDATE-04.sql has been run; until
    then the checkbox for it is not offered and never sent. */
 let PRIVPIPES_READY = false;
+/* leadership arrives with TRACKER-UPDATE-09.sql. Until it is run the checkbox
+   is not offered and never sent, exactly like private_pipes above. */
+let LEADERSHIP_READY = false;
 const mapRole = r => { if("private_pipes" in r) PRIVPIPES_READY = true;
+  if("leadership" in r) LEADERSHIP_READY = true;
   return {id:r.id, name:r.name, dept:r.dept, level:r.level,
     pipes:Array.isArray(r.pipes)?r.pipes:JSON.parse(r.pipes||"[]"),
-    privatePipes: !!r.private_pipes, active:r.active}; };
+    privatePipes: !!r.private_pipes, leadership: !!r.leadership, active:r.active}; };
 const mapUser = p => ({id:p.id, name:p.name, email:p.email||"", role:p.role_id, level:p.level,
   mgr:p.mgr_id, dept:p.dept, admin:!!p.admin, active:p.active!==false, c:p.color||1});
 const mapPipe = p => ({id:p.id, name:p.name, dept:p.dept, color:p.color,
@@ -714,6 +719,16 @@ const mapDoc = d => ({id:d.id, user:d.user_id, title:d.title||"", note:d.note||"
   file:d.file_name||"", mime:d.mime||"", size:Number(d.size_bytes)||0, date:d.log_date,
   ts:new Date(d.created_at).getTime()});
 
+const mapLegal = m => ({id:m.id, title:m.title, type:m.matter_type||"other",
+  party:m.counterparty||"", project:m.project||"", ref:m.ref_no||"",
+  start:m.start_date||"", expiry:m.expiry_date||"", status:m.status||"active",
+  owner:m.owner, notes:m.notes||"", createdBy:m.created_by,
+  ts:new Date(m.created_at).getTime(),
+  updatedAt:m.updated_at?new Date(m.updated_at).getTime():null});
+const mapLegalFile = f => ({id:f.id, legal:f.legal_id, path:f.path, file:f.file_name||"",
+  mime:f.mime||"", size:Number(f.size_bytes)||0, by:f.uploaded_by,
+  ts:new Date(f.created_at).getTime()});
+
 /* Documents are an add-on (TRACKER-UPDATE-02.sql). If that migration has not
    been run yet the table is missing — the rest of the app must still load, so
    this one query is allowed to come back empty instead of failing everything. */
@@ -721,6 +736,17 @@ let DOCS_READY = true;
 async function loadDocs(){
   try{ const d = await DB.sel("dat_docs"); DOCS_READY = true; return d; }
   catch(e){ DOCS_READY = false; console.warn("Documents unavailable:", e.message||e); return []; }
+}
+
+/* The legal repository arrives with TRACKER-UPDATE-09.sql. Row-level security
+   returns nothing at all to anyone outside the CEO / VP / Legal circle, so an
+   empty result here is the normal, correct answer for most of the company —
+   only a missing table flips LEGAL_READY off. */
+let LEGAL_READY = true;
+async function loadLegal(){
+  try{ const [m,f] = await Promise.all([DB.sel("dat_legal"), DB.sel("dat_legal_files")]);
+       LEGAL_READY = true; return [m,f]; }
+  catch(e){ LEGAL_READY = false; console.warn("Legal repository unavailable:", e.message||e); return [[],[]]; }
 }
 
 /* Groups arrive with TRACKER-UPDATE-06.sql; until it is run the tab says so
@@ -744,14 +770,14 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
-    DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(),
+    DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(), loadLegal(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -772,6 +798,8 @@ async function loadAll(){
     "Blocked - needs approval","Missing information","Reprioritised","Other"];
   KPIS     = kp[0].map(mapKpi).filter(k=>k.active).sort((a,b)=>a.name.localeCompare(b.name));
   KTARGETS = kp[1].map(mapKTgt);
+  LEGAL       = lg[0].map(mapLegal).sort((a,b)=>(a.expiry||"9999").localeCompare(b.expiry||"9999") || b.ts-a.ts);
+  LEGAL_FILES = lg[1].map(mapLegalFile).sort((a,b)=>b.ts-a.ts);
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -785,6 +813,7 @@ const state = {
   theme: (matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
   logWho:null,   // person filter on daily-log view (managers+)
   docWho:null,   // person filter on documents view
+  legalQ:"", legalType:"all", legalStatus:"open",   // filters on the legal repository
   group:null,    // group open on the groups view
   period:"today",// window the team summary and the report cover
   kpiMonth:null, // month shown on the KPI screen (set at sign-in)
@@ -801,6 +830,20 @@ const canRequest = u => u.level==="ceo" || u.level==="vp";   // may raise a requ
 /* The org chart lays out the whole reporting line, so it stays with leadership:
    CEO, VP and Admins only. Managers and team members never see the Team tab. */
 const canSeeTeam = u => !!u && (u.level==="ceo" || u.level==="vp" || !!u.admin);
+/* LEADERSHIP — the CEO and every VP by definition, plus anyone whose job role
+   carries the "leadership access" switch. That switch is how AVP and DGM get a
+   leadership READ without becoming a new rung on the ladder: it widens what
+   they can see and nothing else — no task edits, no accounts, no org chart.
+   Mirrors dat_is_leadership() in TRACKER-UPDATE-09.sql; the database enforces. */
+const isLeadership = u => !!u && (u.level==="ceo" || u.level==="vp"
+  || (!!roleOf(u)?.leadership && roleOf(u)?.active !== false));
+/* THE LEGAL REPOSITORY — the CEO, every VP, and anyone sitting in the Legal
+   department, whether that comes from their profile or from their job role.
+   All three groups may add and edit; only the person who filed a matter (or an
+   Admin) may delete it. Mirrors dat_can_legal() in TRACKER-UPDATE-09.sql. */
+const canLegal = u => !!u && (u.level==="ceo" || u.level==="vp"
+  || (u.dept||"").toLowerCase()==="legal"
+  || (roleOf(u)?.dept||"").toLowerCase()==="legal");
 const isLive   = u => u.active !== false;
 const liveUsers = () => USERS.filter(isLive);
 const pendingReqs = () => REQS.filter(r=>r.status==="pending");
@@ -816,12 +859,13 @@ function visibleUserIds(viewer){                       // whose work can I see?
 }
 /* Documents follow their OWN rule, wider than tasks and the daily log:
    a document you attach is visible to you, to everyone above you in the
-   reporting line, and to every VP and the CEO — company-wide, not just your
-   branch. Mirrors dat_can_see_docs() in TRACKER-UPDATE-02.sql exactly; the
+   reporting line, and to leadership — the CEO, every VP, and any role carrying
+   the leadership switch (AVP, DGM) — company-wide, not just your branch.
+   Mirrors dat_can_see_docs() in TRACKER-UPDATE-09.sql exactly; the
    database is what actually enforces it, this is only so the screen matches. */
 function docVisibleUserIds(viewer){
   if(!viewer) return [];
-  if(viewer.level==="ceo" || viewer.level==="vp") return liveUsers().map(u=>u.id);
+  if(isLeadership(viewer)) return liveUsers().map(u=>u.id);
   if(viewer.level==="manager") return subtree(viewer.id);
   return [viewer.id];
 }
@@ -978,6 +1022,7 @@ const IC = {
   review:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="7.5" r="3.2"/><path d="M4.5 19c.5-3 2.8-4.8 6-4.8 1 0 1.9.2 2.7.5"/><path d="M15.5 15.5l2 2 3.5-3.8"/></svg>',
   kpi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>',
   doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/><path d="M9 13h6M9 16.5h4"/></svg>',
+  legal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v17M5.5 20.5h13"/><path d="M4 8.5h16"/><path d="M7.2 8.5 4.4 14.4a3 3 0 0 0 5.6 0z"/><path d="M16.8 8.5l-2.8 5.9a3 3 0 0 0 5.6 0z"/></svg>',
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
   inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5h4l1.4 2.4h6.2l1.4-2.4h4"/><path d="M5.6 5h12.8l2.1 8.5v3.9a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-3.9z"/></svg>',
@@ -1270,7 +1315,8 @@ const NAVS = [
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
 const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
-  dailyup:"Daily Update", kpis:"KPIs", documents:"Documents", groups:"Groups", team:"Team",
+  dailyup:"Daily Update", kpis:"KPIs", documents:"Documents", legal:"Legal repository",
+  groups:"Groups", team:"Team",
   review:"Employee review", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
@@ -1280,6 +1326,9 @@ function navsFor(me){
     n.splice(2, 0, {id:"dailyup", label:"Daily Update", ic:IC.day});
     n.push({id:"review", label:"Review", ic:IC.review});
   }
+  /* Legal sits with Documents — a register, not a personal screen. Only the
+     CEO, the VPs and the Legal department ever see the tab at all. */
+  if(canLegal(me)) n.push({id:"legal", label:"Legal", ic:IC.legal, count:legalAlerts().length});
   if(GROUPS_READY && (myGroups().length || canRunGroups(me)))
     n.push({id:"groups", label:"Groups", ic:IC.chat, count:unreadTotal()});
   if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
@@ -1415,7 +1464,7 @@ function subscribeRealtime(){
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_task_events"}, onTaskEventLive);
   /* group chat: realtime only delivers messages from groups you belong to */
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_messages"}, onMessageLive);
-  ["dat_groups","dat_group_members","dat_kpis","dat_kpi_targets"].forEach(t=>
+  ["dat_groups","dat_group_members","dat_kpis","dat_kpi_targets","dat_legal","dat_legal_files"].forEach(t=>
     chan.on("postgres_changes",{event:"*",schema:"public",table:t}, queueReload));
   chan.subscribe(status=>{ REALTIME_STATE = status || "unknown"; });
 }
@@ -1442,6 +1491,7 @@ function render(){
   $("#viewDate").textContent = state.view==="admin" ? "Job roles, accounts and requests"
     : state.view==="requests" ? "Ask the Admin to create a job role or account"
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
+    : state.view==="legal" ? "Contracts, cases, notices and licences — the CEO, the VPs and Legal, and nobody else"
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
     : state.view==="dailyup" ? "One day at a time — who updated what, and who did not"
@@ -1452,11 +1502,12 @@ function render(){
     state.view==="admin"||state.view==="requests"||state.view==="groups"
     ||state.view==="review"||state.view==="dailyup");
   $("#quickAddLbl").textContent = state.view==="documents" ? "Add document"
+    : state.view==="legal" ? "New matter"
     : state.view==="kpis" ? "Set targets" : "New task";
   applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily,
     dailyup:renderDailyUp, kpis:renderKpis,
-    documents:renderDocs, groups:renderGroups, team:renderTeam, review:renderReview,
+    documents:renderDocs, legal:renderLegal, groups:renderGroups, team:renderTeam, review:renderReview,
     admin:renderAdmin, requests:renderRequests}[state.view])();
 }
 
@@ -2347,6 +2398,7 @@ function renderDashboard(){
           <span class="key"><span class="sw" style="background:var(--s2)"></span>Log entries</span></div></div>
         <div class="chart-wrap" id="weekChart"></div>
       </div>
+      ${isLeadership(me)?dashDocsCard():""}
       ${team?"":`<div class="card card-pad">
         <div class="card-head"><div><h3>My boards</h3><div class="sub">Where your work stands, stage by stage</div></div>
           <div class="spacer"></div>${canCreatePipeline(me)?`<button class="btn sm" data-act="newPipe">＋ New board</button>`:""}</div>
@@ -2398,7 +2450,49 @@ function renderDashboard(){
 
   const wc = weekChart(); $("#weekChart").innerHTML = wc.svg; wireWeekChart($("#weekChart"), wc);
   wireTeamSummary();
+  wireDashDocs();
   wireCommon();
+}
+
+/* ---- Documents on the Dashboard ----------------------------------------
+   Leadership asked not to have to open the Documents tab to find out that
+   something was filed. This is the same data, read-only, newest first — the
+   CEO, the VPs and anyone holding a leadership job role (AVP, DGM) see it.
+   Row-level security decides what is in DOCS in the first place; this only
+   decides whether the card is drawn. */
+function dashDocsCard(){
+  const me = state.me;
+  const ids = docVisibleUserIds(me);
+  const all = DOCS.filter(d=>ids.includes(d.user));
+  const today = all.filter(d=>d.date===TODAY).length;
+  const week  = all.filter(d=>d.date>=dOff(-6)).length;
+  const latest = all.slice(0, 7);
+  return `<div class="card card-pad">
+    <div class="card-head"><div><h3>Documents</h3>
+      <div class="sub">${today?`${today} filed today · `:""}${week} in the last 7 days · ${all.length} in total</div></div>
+      <div class="spacer"></div>
+      <button class="btn sm" data-nav="documents">Open Documents</button></div>
+    ${latest.length?latest.map(d=>{ const u=U(d.user);
+      return `<div class="log-entry">
+        <div class="file-ic">${esc(docExt(d))}</div>
+        <div style="min-width:0">
+          <div class="doc-name" data-dashdoc="${d.id}">${esc(d.title||d.file||"Untitled")}</div>
+          <div class="lmeta"><b style="color:var(--ink)">${esc(u?.name||"Someone")}</b> ·
+            ${esc(relDay(d.date))}${d.size?` · ${fmtBytes(d.size)}`:""}</div>
+          ${d.note?`<div class="note">${esc(d.note)}</div>`:""}
+        </div>
+        <div class="acts" style="opacity:1"><button class="mini-btn" data-dashget="${d.id}">Download</button></div>
+      </div>`;}).join("")
+    :`<div style="color:var(--muted);font-size:13px">Nobody has attached a document yet.</div>`}
+  </div>`;
+}
+function wireDashDocs(){
+  document.querySelectorAll("[data-dashdoc],[data-dashget]").forEach(el=>el.addEventListener("click",()=>{
+    const id = el.dataset.dashdoc || el.dataset.dashget;
+    const d = DOCS.find(x=>x.id===id); if(!d) return;
+    const w = window.open("", "_blank");           // opened synchronously, before any await
+    openDoc(d, !!el.dataset.dashget, w);
+  }));
 }
 function myDayList(){
   const mine = TASKS.filter(t=>t.assignee===state.me.id && !t.done && t.due && t.due<=TODAY)
@@ -3047,6 +3141,296 @@ function renderDocs(){
     if(await deleteDoc(d)){ toast("Document deleted"); renderDocs(); } else el.disabled=false;
   }));
   showPick();
+}
+
+/* ================= legal repository =================
+   A register of legal matters — contracts, cases, notices, licences — each
+   with its own fields and its own attached files. Who may read it, add to it
+   and edit it is decided by dat_can_legal() in TRACKER-UPDATE-09.sql: the CEO,
+   every VP, and anyone in the Legal department. Everyone else gets nothing
+   back from the database at all, Admins included. Deleting a matter stays with
+   whoever filed it (or an Admin), the same rule the Documents tab follows. */
+const LEGAL_BUCKET = "dat-legal";
+const LEGAL_TYPES  = {contract:"Contract", agreement:"Agreement", case:"Case",
+                      notice:"Notice", licence:"Licence", other:"Other"};
+const LEGAL_STATUS = {draft:"Draft", active:"Active", pending:"Pending",
+                      expired:"Expired", closed:"Closed"};
+const LEGAL_OPEN   = ["draft","active","pending","expired"];   // everything but closed
+const legalFilesOf = id => LEGAL_FILES.filter(f=>f.legal===id);
+const legalOf      = id => LEGAL.find(m=>m.id===id);
+/* days until expiry — negative once it is past, null when there is no date */
+function legalDays(m){ if(!m.expiry) return null;
+  return Math.round((new Date(m.expiry+"T00:00:00") - todayD) / DAY); }
+/* what leadership actually needs chasing: anything still open, with an expiry
+   date inside the next 30 days or already behind us */
+function legalAlerts(){
+  if(!canLegal(state.me)) return [];
+  return LEGAL.filter(m=>m.status!=="closed" && legalDays(m)!==null && legalDays(m) <= 30);
+}
+function legalExpiryChip(m){
+  const d = legalDays(m);
+  if(d===null) return `<span style="color:var(--muted)">—</span>`;
+  if(m.status==="closed") return `<span style="color:var(--muted)">${esc(fmtDate(m.expiry))}</span>`;
+  if(d < 0)  return `<span class="chip overdue">${esc(fmtDate(m.expiry))} · ${Math.abs(d)}d ago</span>`;
+  if(d <= 30) return `<span class="chip today">${esc(fmtDate(m.expiry))} · ${d}d left</span>`;
+  return esc(fmtDate(m.expiry));
+}
+const legalStatusChip = m => `<span class="chip ${m.status==="closed"?"done":m.status==="expired"?"overdue":m.status==="pending"?"today":"p-low"}">${esc(LEGAL_STATUS[m.status]||m.status)}</span>`;
+
+async function uploadLegalFile(matterId, file){
+  if(file.size > DOC_MAX){ toast(`"${file.name}" is ${fmtBytes(file.size)} — the limit is 25 MB.`); return null; }
+  const safe = file.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+  const path = `${matterId}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safe}`;
+  const {error:upErr} = await sb.storage.from(LEGAL_BUCKET)
+    .upload(path, file, {contentType:file.type||"application/octet-stream", upsert:false});
+  if(upErr){
+    console.error(upErr);
+    toast(/bucket not found/i.test(upErr.message||"")
+      ? "Legal file storage is not set up yet — run TRACKER-UPDATE-09.sql."
+      : (upErr.message || "Upload failed."));
+    return null;
+  }
+  const row = await guard(()=>DB.ins("dat_legal_files",{legal_id:matterId, path,
+    file_name:file.name, mime:file.type||"", size_bytes:file.size, uploaded_by:state.me.id}));
+  if(!row){ await sb.storage.from(LEGAL_BUCKET).remove([path]).catch(()=>{}); return null; }
+  const mapped = mapLegalFile(row); LEGAL_FILES.unshift(mapped); return mapped;
+}
+async function openLegalFile(f, asDownload, win){
+  const {data,error} = await sb.storage.from(LEGAL_BUCKET)
+    .createSignedUrl(f.path, 120, asDownload ? {download: f.file||true} : {});
+  if(error||!data){ if(win) win.close(); console.error(error);
+    toast("Could not open that file — it may have been removed."); return; }
+  if(win) win.location.href = data.signedUrl; else window.open(data.signedUrl,"_blank","noopener");
+}
+async function deleteLegalFile(f){
+  if(await guard(()=>DB.del("dat_legal_files", f.id).then(()=>true)) === null) return false;
+  await sb.storage.from(LEGAL_BUCKET).remove([f.path]).catch(()=>{});
+  const i = LEGAL_FILES.findIndex(x=>x.id===f.id); if(i>-1) LEGAL_FILES.splice(i,1);
+  return true;
+}
+
+function legalRows(){
+  const q = state.legalQ.trim().toLowerCase();
+  return LEGAL.filter(m=>{
+    if(state.legalType!=="all" && m.type!==state.legalType) return false;
+    if(state.legalStatus==="open"   && m.status==="closed") return false;
+    if(state.legalStatus==="alerts" && !(m.status!=="closed" && legalDays(m)!==null && legalDays(m)<=30)) return false;
+    if(!["all","open","alerts"].includes(state.legalStatus) && m.status!==state.legalStatus) return false;
+    if(!q) return true;
+    return [m.title, m.party, m.project, m.ref, m.notes, LEGAL_TYPES[m.type]||"", U(m.owner)?.name||""]
+      .join(" ").toLowerCase().includes(q);
+  });
+}
+
+function renderLegal(){
+  const me = state.me;
+  const rows = legalRows();
+  const open   = LEGAL.filter(m=>LEGAL_OPEN.includes(m.status)).length;
+  const alerts = legalAlerts();
+  const expired = LEGAL.filter(m=>m.status!=="closed" && legalDays(m)!==null && legalDays(m)<0).length;
+
+  $("#view").innerHTML = `
+  ${!LEGAL_READY?`<div class="card card-pad" style="margin-bottom:18px;border-color:var(--critical)">
+    <b>The legal repository is not switched on yet.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:5px">Run <code>TRACKER-UPDATE-09.sql</code>
+    in the Supabase SQL Editor, then reload this page.</div></div>`:""}
+
+  <div class="grid g-kpis" style="margin-bottom:16px">
+    <div class="card tile"><div class="lbl">Matters on file</div><div class="val">${LEGAL.length}</div>
+      <div class="delta">${open} still open</div></div>
+    <div class="card tile"><div class="lbl">Expiring in 30 days</div>
+      <div class="val" style="${alerts.length?'color:var(--warning)':''}">${alerts.length-expired}</div>
+      <div class="delta">${alerts.length-expired?"renew or close these":"nothing due"}</div></div>
+    <div class="card tile"><div class="lbl">Already expired</div>
+      <div class="val" style="${expired?'color:var(--critical)':''}">${expired}</div>
+      <div class="delta ${expired?"down":""}">${expired?"past their end date":"all clear"}</div></div>
+    <div class="card tile"><div class="lbl">Files attached</div><div class="val">${LEGAL_FILES.length}</div>
+      <div class="delta">across every matter</div></div>
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:16px">
+    <div class="qa-form" style="grid-template-columns:1fr 170px 190px auto">
+      <input id="lgQ" placeholder="Search title, party, project, reference or note" value="${esc(state.legalQ)}">
+      <select id="lgType"><option value="all" ${state.legalType==="all"?"selected":""}>Every type</option>
+        ${Object.entries(LEGAL_TYPES).map(([k,v])=>`<option value="${k}" ${state.legalType===k?"selected":""}>${esc(v)}</option>`).join("")}</select>
+      <select id="lgStatus">
+        <option value="open"   ${state.legalStatus==="open"?"selected":""}>Open matters</option>
+        <option value="alerts" ${state.legalStatus==="alerts"?"selected":""}>Needs attention (30 days)</option>
+        <option value="all"    ${state.legalStatus==="all"?"selected":""}>Everything, closed included</option>
+        ${Object.entries(LEGAL_STATUS).map(([k,v])=>`<option value="${k}" ${state.legalStatus===k?"selected":""}>${esc(v)} only</option>`).join("")}</select>
+      <button class="btn primary" id="lgNew">＋ New matter</button>
+    </div>
+  </div>
+
+  ${rows.length?`<div class="card card-pad" style="padding-top:6px">
+    <div style="overflow-x:auto"><table class="simple">
+      <thead><tr><th>Matter</th><th>Type</th><th>Counterparty</th><th>Project</th>
+        <th>Start</th><th>Expiry</th><th>Status</th><th>Owner</th><th>Files</th></tr></thead>
+      <tbody>${rows.map(m=>{ const u=U(m.owner), nf=legalFilesOf(m.id).length;
+        return `<tr class="click" data-legal="${m.id}">
+          <td><b>${esc(m.title)}</b>${m.ref?`<div style="font-size:11.5px;color:var(--muted)">${esc(m.ref)}</div>`:""}</td>
+          <td>${esc(LEGAL_TYPES[m.type]||m.type)}</td>
+          <td>${esc(m.party||"—")}</td>
+          <td>${esc(m.project||"—")}</td>
+          <td>${m.start?esc(fmtDate(m.start)):"—"}</td>
+          <td>${legalExpiryChip(m)}</td>
+          <td>${legalStatusChip(m)}</td>
+          <td>${u?esc(u.name):`<span style="color:var(--muted)">unassigned</span>`}</td>
+          <td>${nf?`📎 ${nf}`:`<span style="color:var(--muted)">—</span>`}</td>
+        </tr>`;}).join("")}</tbody></table></div></div>`
+  :`<div class="card card-pad" style="text-align:center;color:var(--muted)">
+      ${LEGAL.length?"Nothing matches those filters.":"No legal matters on file yet. Add the first one above."}</div>`}`;
+
+  const q=$("#lgQ");
+  q.addEventListener("input",()=>{ state.legalQ=q.value; const at=q.selectionStart; renderLegal();
+    const nq=$("#lgQ"); nq.focus(); try{ nq.setSelectionRange(at,at); }catch(_){} });
+  $("#lgType").addEventListener("change",e=>{ state.legalType=e.target.value; renderLegal(); });
+  $("#lgStatus").addEventListener("change",e=>{ state.legalStatus=e.target.value; renderLegal(); });
+  $("#lgNew").addEventListener("click",()=>openLegalModal(null));
+  document.querySelectorAll("[data-legal]").forEach(tr=>tr.addEventListener("click",()=>openLegalModal(tr.dataset.legal)));
+}
+
+/* One matter: its fields, and the files hanging off it. Files picked while the
+   matter is still new are held back and uploaded once it has an id — so a
+   half-created matter never leaves an orphaned file in the bucket. */
+function openLegalModal(id){
+  const me = state.me;
+  if(!canLegal(me)){ toast("The legal repository is for the CEO, the VPs and the Legal department."); return; }
+  const m = id ? legalOf(id) : null;
+  const mine = !m || m.createdBy===me.id || isAdmin(me);
+  let pending = [];
+
+  function filesHTML(){
+    const fs = m ? legalFilesOf(m.id) : [];
+    return `${fs.map(f=>`<div class="log-entry" style="padding:8px 4px">
+        <div class="file-ic">${esc(((f.file||"").split(".").pop()||"file").slice(0,4))}</div>
+        <div style="min-width:0"><div class="doc-name" data-lgopen="${f.id}">${esc(f.file||"file")}</div>
+          <div class="lmeta">${esc(U(f.by)?.name||"Someone")} · ${esc(relDay(new Date(f.ts).toISOString().slice(0,10)))}${f.size?` · ${fmtBytes(f.size)}`:""}</div></div>
+        <div class="acts" style="opacity:1">
+          <button type="button" class="mini-btn" data-lgget="${f.id}">Download</button>
+          <button type="button" class="mini-btn" data-lgdel="${f.id}" style="color:var(--critical)">Remove</button></div>
+      </div>`).join("")}
+      ${pending.map((f,i)=>`<div class="log-entry" style="padding:8px 4px;opacity:.75">
+        <div class="file-ic">${esc(((f.name||"").split(".").pop()||"file").slice(0,4))}</div>
+        <div style="min-width:0"><div class="doc-name">${esc(f.name)}</div>
+          <div class="lmeta">will be attached when you save · ${fmtBytes(f.size)}</div></div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-lgdrop="${i}">Remove</button></div>
+      </div>`).join("")}
+      ${(!fs.length && !pending.length)?`<div style="font-size:12.5px;color:var(--muted);padding:4px">No files attached yet.</div>`:""}`;
+  }
+
+  modal(`<div class="modal wide">
+    <h3>${m?"Edit matter":"New legal matter"}</h3>
+    <div class="msub">${m?`Filed by ${esc(U(m.createdBy)?.name||"someone")}${m.updatedAt?` · last changed ${timeAgo(m.updatedAt)}`:""}`
+      :"Contracts, cases, notices and licences. Only the CEO, the VPs and the Legal department can ever see this."}</div>
+    <form id="legalForm" class="f-grid">
+      <div class="field"><label>Title</label>
+        <input id="lgTitle" required maxlength="140" value="${esc(m?.title||"")}" placeholder="e.g. D2D collection agreement — Sikar Nagar Parishad"></div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Type</label><select id="lgMType">
+          ${Object.entries(LEGAL_TYPES).map(([k,v])=>`<option value="${k}" ${(m?.type||"contract")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+        <div class="field"><label>Status</label><select id="lgMStatus">
+          ${Object.entries(LEGAL_STATUS).map(([k,v])=>`<option value="${k}" ${(m?.status||"active")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Counterparty</label>
+          <input id="lgParty" maxlength="120" value="${esc(m?.party||"")}" placeholder="The ULB, vendor, client or opposing party"></div>
+        <div class="field"><label>Project / site</label>
+          <input id="lgProject" maxlength="120" value="${esc(m?.project||"")}" placeholder="e.g. Vidisha MSW, Cluster 1"></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Reference number</label>
+          <input id="lgRef" maxlength="80" value="${esc(m?.ref||"")}" placeholder="Agreement / case / licence no."></div>
+        <div class="field"><label>Owner</label><select id="lgOwner">
+          <option value="">— nobody yet —</option>
+          ${liveUsers().sort((a,b)=>a.name.localeCompare(b.name)).map(u=>`<option value="${u.id}" ${m?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("")}</select></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Start date</label><input type="date" id="lgStart" value="${esc(m?.start||"")}"></div>
+        <div class="field"><label>Expiry / next date</label><input type="date" id="lgExpiry" value="${esc(m?.expiry||"")}">
+          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Anything open and inside 30 days shows on the Legal tab badge.</div></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="lgNotes" rows="3" placeholder="Terms worth remembering, what is outstanding, who to call">${esc(m?.notes||"")}</textarea></div>
+      <div class="field"><label>Attachments</label>
+        <div class="doc-drop" id="lgDrop" style="padding:12px"><b>Choose a file</b> or drag it here — up to 25 MB each</div>
+        <input type="file" id="lgFile" multiple style="display:none">
+        <div id="lgFiles">${filesHTML()}</div></div>
+      <div class="m-actions">
+        ${m&&mine?`<button type="button" class="btn" id="lgDelete" style="color:var(--critical)">Delete matter</button>`:""}
+        <div class="grow"></div>
+        <button type="button" class="btn" id="lgCancel">Cancel</button>
+        <button class="btn primary" type="submit">${m?"Save changes":"File this matter"}</button></div>
+    </form></div>`);
+
+  function wireFiles(){
+    $("#lgFiles").innerHTML = filesHTML();
+    document.querySelectorAll("[data-lgopen],[data-lgget]").forEach(el=>el.addEventListener("click",()=>{
+      const f = LEGAL_FILES.find(x=>x.id===(el.dataset.lgopen||el.dataset.lgget)); if(!f) return;
+      const w = window.open("", "_blank");
+      openLegalFile(f, !!el.dataset.lgget, w);
+    }));
+    document.querySelectorAll("[data-lgdel]").forEach(el=>el.addEventListener("click", async ()=>{
+      const f = LEGAL_FILES.find(x=>x.id===el.dataset.lgdel); if(!f) return;
+      el.disabled=true; if(await deleteLegalFile(f)){ toast("File removed"); wireFiles(); } else el.disabled=false;
+    }));
+    document.querySelectorAll("[data-lgdrop]").forEach(el=>el.addEventListener("click",()=>{
+      pending.splice(Number(el.dataset.lgdrop),1); wireFiles();
+    }));
+  }
+  function take(list){
+    [...(list||[])].forEach(f=>{
+      if(f.size > DOC_MAX){ toast(`"${f.name}" is ${fmtBytes(f.size)} — the limit is 25 MB.`); return; }
+      pending.push(f);
+    });
+    wireFiles();
+  }
+  const drop=$("#lgDrop"), inp=$("#lgFile");
+  drop.addEventListener("click",()=>inp.click());
+  inp.addEventListener("change",()=>{ take(inp.files); inp.value=""; });
+  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add("hot"); }));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove("hot"); }));
+  drop.addEventListener("drop",e=>take(e.dataTransfer&&e.dataTransfer.files));
+  wireFiles();
+
+  $("#lgCancel").addEventListener("click",closeModal);
+  const del = $("#lgDelete");
+  if(del) del.addEventListener("click", async ()=>{
+    if(!confirm("Delete this matter and every file attached to it? This cannot be undone.")) return;
+    del.disabled = true;
+    const files = legalFilesOf(m.id);
+    if(await guard(()=>DB.del("dat_legal", m.id).then(()=>true)) === null){ del.disabled=false; return; }
+    if(files.length) await sb.storage.from(LEGAL_BUCKET).remove(files.map(f=>f.path)).catch(()=>{});
+    LEGAL_FILES = LEGAL_FILES.filter(f=>f.legal!==m.id);
+    const i = LEGAL.findIndex(x=>x.id===m.id); if(i>-1) LEGAL.splice(i,1);
+    toast("Matter deleted"); closeModal(); render();
+  });
+
+  $("#legalForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const title = $("#lgTitle").value.trim(); if(!title) return;
+    const vals = {title,
+      matter_type:$("#lgMType").value, status:$("#lgMStatus").value,
+      counterparty:$("#lgParty").value.trim(), project:$("#lgProject").value.trim(),
+      ref_no:$("#lgRef").value.trim(), owner:$("#lgOwner").value || null,
+      start_date:$("#lgStart").value || null, expiry_date:$("#lgExpiry").value || null,
+      notes:$("#lgNotes").value.trim()};
+    const btn = $("#legalForm button[type=submit]"); btn.disabled = true; btn.textContent = "Saving…";
+    let row;
+    if(m) row = await guard(()=>DB.upd("dat_legal", m.id, vals));
+    else   row = await guard(()=>DB.ins("dat_legal", {...vals, created_by:me.id}));
+    if(!row){ btn.disabled=false; btn.textContent = m?"Save changes":"File this matter"; return; }
+    const saved = mapLegal(row);
+    if(m) Object.assign(m, saved); else LEGAL.unshift(saved);
+    if(pending.length){
+      btn.textContent = `Attaching ${pending.length} file${pending.length===1?"":"s"}…`;
+      for(const f of pending) await uploadLegalFile(saved.id, f);
+      pending = [];
+    }
+    LEGAL.sort((a,b)=>(a.expiry||"9999").localeCompare(b.expiry||"9999") || b.ts-a.ts);
+    if(!m) addEvent("move",`filed a legal matter — ${title}`);
+    toast(m?"Matter updated ✓":"Matter filed ✓");
+    closeModal(); render();
+  });
 }
 
 /* ================= team groups =================
@@ -4093,6 +4477,10 @@ function openRoleModal(roleId, preset={}){
         <div class="check-list"><label>
           <input type="checkbox" id="jPrivate" ${r?.privatePipes?"checked":""}> Boards stay private to each person</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Normally everyone in a department can see that department's pipelines. Tick this and they can't — two people holding this role won't see each other's boards. Their manager, VP and the CEO still do, and so do their own reports.</div></div>`:""}
+      ${LEADERSHIP_READY?`<div class="field"><label>Leadership access</label>
+        <div class="check-list"><label>
+          <input type="checkbox" id="jLead" ${r?.leadership?"checked":""}> Treat this role as leadership</label></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">For designations that sit with leadership without being a VP — AVP, DGM. They see everyone's documents and the Documents panel on the Dashboard. It changes what they can <b>see</b> and nothing else: no extra control over anyone's work, no account management, no org chart. The CEO and the VPs already have this.</div></div>`:""}
       ${r?`<div class="field"><div class="check-list"><label>
         <input type="checkbox" id="jActive" ${r.active?"checked":""}> Role is active</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Retiring a role keeps the ${USERS.filter(x=>x.role===r.id).length} people already on it — it just stops appearing when creating new accounts.</div></div>`:""}
@@ -4108,6 +4496,7 @@ function openRoleModal(roleId, preset={}){
     const sel=[...document.querySelectorAll(".jPipe:checked")].map(c=>c.value);
     const vals={name, dept:$("#jDept").value, level:$("#jLevel").value, pipes:sel};
     if(PRIVPIPES_READY) vals.private_pipes = !!($("#jPrivate") && $("#jPrivate").checked);
+    if(LEADERSHIP_READY) vals.leadership = !!($("#jLead") && $("#jLead").checked);
     if(r){
       const saved = await guard(()=>DB.upd("dat_job_roles", r.id, {...vals, active:$("#jActive")?$("#jActive").checked:true}));
       if(!saved) return;
@@ -4303,6 +4692,7 @@ $("#notifBtn").addEventListener("click", toggleNotifications);
 $("#quickAdd").addEventListener("click",()=>{
   if(state.view==="kpis"){ if(teamPeople().length) openKpiModal(null); else toast("Nobody reports to you yet."); }
   else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
+  else if(state.view==="legal"){ openLegalModal(null); }
   else openTaskModal(null,{});
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });
