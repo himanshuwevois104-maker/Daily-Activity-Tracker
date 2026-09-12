@@ -296,6 +296,8 @@ nav{display:flex; flex-direction:column; gap:2px}
   border:1px solid var(--border); background:var(--surface); font-size:13.5px}
 .field textarea{resize:vertical; min-height:74px}
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid color-mix(in srgb,var(--accent) 45%, transparent); border-color:var(--accent)}
+.field input:disabled,.field select:disabled,.field textarea:disabled{background:var(--surface-2);
+  color:var(--ink2); border-color:var(--grid); cursor:default; opacity:1; resize:none}
 input[type=checkbox]{accent-color:var(--accent); width:16px; height:16px; flex:none; cursor:pointer; margin:0}
 .field input[type=checkbox]{width:16px; height:16px; padding:0; border-radius:4px}
 .check-list{display:flex; flex-direction:column; gap:2px; margin-top:2px}
@@ -304,6 +306,62 @@ input[type=checkbox]{accent-color:var(--accent); width:16px; height:16px; flex:n
 .check-list label:hover{background:var(--surface-2)}
 .m-actions{display:flex; gap:9px; margin-top:20px; align-items:center}
 .m-actions .grow{flex:1}
+
+/* ---- long forms ------------------------------------------------------
+   A form with papers and sub-tables on it is too tall to scroll as one
+   block: the person loses the title at the top and the Save button at the
+   bottom. .modal.tall pins both and scrolls only the middle. */
+.modal.tall{display:flex; flex-direction:column; max-height:88vh; padding:0}
+.modal.tall > form{display:flex; flex-direction:column; flex:1; min-height:0}
+.modal.tall .m-head{padding:19px 24px 13px; border-bottom:1px solid var(--grid); flex:none}
+.modal.tall .m-head h3{margin-bottom:3px}
+.modal.tall .m-head .msub{margin:0}
+.modal.tall .m-body{padding:17px 24px 20px; overflow-y:auto; flex:1; min-height:0}
+.modal.tall .m-actions{margin:0; padding:12px 24px; border-top:1px solid var(--grid);
+  background:var(--surface); border-radius:0 0 18px 18px; flex:none}
+.modal.tall .field textarea{min-height:54px}
+@media(max-width:640px){.modal.tall{max-height:94vh}
+  .modal.tall .m-head,.modal.tall .m-body,.modal.tall .m-actions{padding-left:16px; padding-right:16px}}
+
+/* a titled group of fields, with a hairline running out to the edge */
+.fsec{margin-bottom:19px}
+.fsec:last-child{margin-bottom:0}
+.fsec-h{display:flex; align-items:baseline; gap:10px; margin-bottom:10px}
+.fsec-h b{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:750; flex:none}
+.fsec-h .fsec-n{font-size:11.5px; color:var(--muted); flex:none}
+@media(max-width:660px){.fsec-h .fsec-n{display:none}}
+.fsec-h:after{content:""; flex:1; height:1px; background:var(--grid)}
+.fsec table.simple th{padding:5px 7px}
+.fsec table.simple td{padding:5px 7px}
+.fsec table.simple input,.fsec table.simple select{padding:6px 8px; font-size:12.5px; border-radius:8px;
+  border:1px solid var(--border); background:var(--surface); width:100%; min-width:0}
+.emd-wrap{overflow-x:auto}
+.emd-wrap table.simple{min-width:780px}
+.emd-wrap th{white-space:nowrap}
+.emd-wrap td input[type=number]{text-align:right}
+.emd-wrap td:last-child{text-align:center}
+
+.f-3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:760px){.f-3{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.f-3{grid-template-columns:1fr}}
+.f-grid{align-items:start}
+.span2{grid-column:span 2} .span3{grid-column:span 3}
+@media(max-width:760px){.span3{grid-column:span 2}}
+@media(max-width:520px){.span2,.span3{grid-column:span 1}}
+.field .hint{font-size:11px; color:var(--muted); margin-top:4px; line-height:1.35}
+
+/* two file groups side by side, each its own tray */
+.file-cols{display:grid; grid-template-columns:1fr 1fr; gap:13px}
+@media(max-width:640px){.file-cols{grid-template-columns:1fr}}
+.file-box{border:1px solid var(--border); border-radius:12px; padding:11px 12px}
+.file-box .fb-h{display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700;
+  color:var(--ink2); margin-bottom:8px}
+.file-box .fb-h span{margin-left:auto; font-weight:600; color:var(--muted); font-size:11.5px}
+.file-box .log-entry{padding:6px 2px; gap:9px}
+.file-box .file-ic{width:26px; height:26px; font-size:9px}
+.drop-mini{border:1.4px dashed var(--border); border-radius:10px; padding:11px 8px; text-align:center;
+  font-size:12.5px; color:var(--muted); cursor:pointer; transition:.15s; margin-bottom:7px}
+.drop-mini:hover,.drop-mini.hot{border-color:var(--accent); background:var(--surface-2); color:var(--ink)}
 .color-row{display:flex; gap:8px; flex-wrap:wrap}
 .color-dot{width:28px; height:28px; border-radius:50%; border:2.5px solid transparent; cursor:pointer}
 .color-dot.sel{border-color:var(--ink); box-shadow:0 0 0 2px var(--surface) inset}
@@ -3394,92 +3452,112 @@ function openTenderModal(id){
   let emdRows = t ? emdOf(t.id).map(e=>({...e})) : [];
   let emdGone = [];                                  // ids to delete on save
 
-  function fileGroup(kind){
+  function fileBox(kind){
     const fs = t ? tFilesOf(t.id, kind) : [];
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px">${esc(T_KINDS[kind])}</div>
-      ${wr?`<div class="doc-drop" data-drop="${kind}" style="padding:11px;font-size:12.5px"><b>Choose a file</b> or drag it here</div>`:""}
-      <div>${fs.map(f=>`<div class="log-entry" style="padding:7px 4px">
+    const total = fs.length + pending[kind].length;
+    return `<div class="file-box">
+      <div class="fb-h">${kind==="work_order"?"🧾":"📄"} ${esc(T_KINDS[kind])}<span>${total||"none"}</span></div>
+      ${wr?`<div class="drop-mini" data-drop="${kind}"><b>Choose a file</b> or drag it here</div>`:""}
+      ${fs.map(f=>`<div class="log-entry">
         <div class="file-ic">${esc(((f.file||"").split(".").pop()||"file").slice(0,4))}</div>
         <div style="min-width:0"><div class="doc-name" data-tdopen="${f.id}">${esc(f.file||"file")}</div>
           <div class="lmeta">${esc(U(f.by)?.name||"Someone")}${f.size?` · ${fmtBytes(f.size)}`:""}</div></div>
-        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tdget="${f.id}">Download</button>
-          ${wr?`<button type="button" class="mini-btn" data-tddel="${f.id}" style="color:var(--critical)">Remove</button>`:""}</div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tdget="${f.id}">↓</button>
+          ${wr?`<button type="button" class="mini-btn" data-tddel="${f.id}" style="color:var(--critical)">✕</button>`:""}</div>
       </div>`).join("")}
-      ${pending[kind].map((f,i)=>`<div class="log-entry" style="padding:7px 4px;opacity:.75">
+      ${pending[kind].map((f,i)=>`<div class="log-entry" style="opacity:.7">
         <div class="file-ic">${esc(((f.name||"").split(".").pop()||"file").slice(0,4))}</div>
         <div style="min-width:0"><div class="doc-name">${esc(f.name)}</div>
-          <div class="lmeta">attached when you save · ${fmtBytes(f.size)}</div></div>
-        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tddrop="${kind}:${i}">Remove</button></div>
+          <div class="lmeta">on save · ${fmtBytes(f.size)}</div></div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tddrop="${kind}:${i}">✕</button></div>
       </div>`).join("")}
-      ${(!fs.length && !pending[kind].length)?`<div style="font-size:12px;color:var(--muted);padding:3px">Nothing yet.</div>`:""}</div></div>`;
+      ${!total?`<div style="font-size:12px;color:var(--muted);padding:2px">Nothing yet.</div>`:""}</div>`;
   }
 
   function emdHTML(){
     if(!seeEmd) return "";
     const total = emdRows.reduce((a,e)=>a+Number(e.amount||0),0);
     const got   = emdRows.filter(e=>e.status==="received").length;
-    return `<div class="field"><label>EMD${emdRows.length?` — ${inr(total)}, ${got} of ${emdRows.length} received`:""}</label>
-      <div style="font-size:11.5px;color:var(--muted);margin:-2px 0 7px">One line per site. Only the CEO, the VPs and the Tender team can see this section at all.</div>
-      <div style="overflow-x:auto"><table class="simple">
-        <thead><tr><th>Site</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Status</th><th>Received on</th>${wrEmd?"<th></th>":""}</tr></thead>
+    return `<div class="fsec">
+      <div class="fsec-h"><b>EMD</b><span class="fsec-n">${emdRows.length
+        ? `${inr(total)} · ${got} of ${emdRows.length} received`
+        : "one line per site — CEO, VPs and the Tender team only"}</span></div>
+      <div class="emd-wrap"><table class="simple">
+        <colgroup><col style="width:23%"><col style="width:13%"><col style="width:13%"><col style="width:15%">
+          <col style="width:19%"><col style="width:17%">${wrEmd?`<col style="width:34px">`:""}</colgroup>
+        <thead><tr><th>Site</th><th>Amount ₹</th><th>Mode</th><th>Reference</th><th>Status</th><th>Received on</th>${wrEmd?"<th></th>":""}</tr></thead>
         <tbody>${emdRows.length?emdRows.map((e,i)=>wrEmd?`<tr>
-          <td><input class="emdf" data-i="${i}" data-f="site" value="${esc(e.site||"")}" placeholder="Site / ULB" style="width:150px"></td>
-          <td><input class="emdf" data-i="${i}" data-f="amount" type="number" min="0" step="1" value="${e.amount||0}" style="width:110px"></td>
+          <td><input class="emdf" data-i="${i}" data-f="site" value="${esc(e.site||"")}" placeholder="Site / ULB"></td>
+          <td><input class="emdf" data-i="${i}" data-f="amount" type="number" min="0" step="1" value="${e.amount||0}"></td>
           <td><select class="emdf" data-i="${i}" data-f="mode">${Object.entries(EMD_MODE).map(([k,v])=>`<option value="${k}" ${e.mode===k?"selected":""}>${esc(v)}</option>`).join("")}</select></td>
-          <td><input class="emdf" data-i="${i}" data-f="ref" value="${esc(e.ref||"")}" placeholder="DD / UTR" style="width:120px"></td>
+          <td><input class="emdf" data-i="${i}" data-f="ref" value="${esc(e.ref||"")}" placeholder="DD / UTR"></td>
           <td><select class="emdf" data-i="${i}" data-f="status">
             <option value="not_received" ${e.status!=="received"?"selected":""}>Not received</option>
             <option value="received" ${e.status==="received"?"selected":""}>Received</option></select></td>
           <td><input class="emdf" data-i="${i}" data-f="receivedOn" type="date" value="${esc(e.receivedOn||"")}"></td>
           <td><button type="button" class="mini-btn" data-emddel="${i}" style="color:var(--critical)">✕</button></td>
         </tr>`:`<tr>
-          <td>${esc(e.site||"—")}</td><td>${inr(e.amount)}</td><td>${esc(EMD_MODE[e.mode]||e.mode)}</td>
+          <td>${esc(e.site||"—")}</td><td style="text-align:right">${inr(e.amount)}</td><td>${esc(EMD_MODE[e.mode]||e.mode)}</td>
           <td>${esc(e.ref||"—")}</td>
           <td><span class="chip ${e.status==="received"?"done":"today"}">${e.status==="received"?"Received":"Not received"}</span></td>
           <td>${e.receivedOn?esc(fmtDate(e.receivedOn)):"—"}</td>
         </tr>`).join("")
         :`<tr><td colspan="${wrEmd?7:6}" style="color:var(--muted)">No EMD recorded for this tender.</td></tr>`}</tbody></table></div>
-      ${wrEmd?`<button type="button" class="btn sm" id="emdAdd" style="margin-top:8px">＋ Add an EMD line</button>`:""}</div>`;
+      ${wrEmd?`<button type="button" class="btn sm" id="emdAdd" style="margin-top:9px">＋ Add an EMD line</button>`:""}</div>`;
   }
 
-  modal(`<div class="modal wide">
-    <h3>${t?(wr?"Edit tender":"Tender"):"New tender"}</h3>
-    <div class="msub">${t?`Filed by ${esc(U(t.createdBy)?.name||"someone")}${t.updatedAt?` · last changed ${timeAgo(t.updatedAt)}`:""}`
-      :"Tender papers and work orders, and the EMD against them."}${wr?"":" · you can read this, not change it"}</div>
-    <form id="tenderForm" class="f-grid">
-      <div class="field"><label>Tender</label>
-        <input id="tdTitle" required maxlength="160" ${dis} value="${esc(t?.title||"")}" placeholder="e.g. D2D collection &amp; transportation — Losal"></div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Site / ULB / cluster</label>
-          <input id="tdSite" maxlength="120" ${dis} value="${esc(t?.site||"")}" placeholder="e.g. Losal Nagar Palika"></div>
-        <div class="field"><label>Authority</label>
-          <input id="tdAuth" maxlength="120" ${dis} value="${esc(t?.authority||"")}" placeholder="Who floated it — DLB, ULB, GeM"></div>
+  const people = liveUsers().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(u=>`<option value="${u.id}" ${t?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("");
+  modal(`<div class="modal wide tall">
+    <div class="m-head">
+      <h3>${t?esc(t.title):"New tender"}</h3>
+      <div class="msub">${t
+        ? `${t.site?esc(t.site)+" · ":""}${esc(T_STATUS[t.status]||t.status)}${t.createdBy?` · filed by ${esc(U(t.createdBy)?.name||"someone")}`:""}${t.updatedAt?` · changed ${timeAgo(t.updatedAt)}`:""}`
+        : "Tender papers and work orders, and the EMD against them."}${wr?"":" — read only"}</div>
+    </div>
+    <form id="tenderForm">
+      <div class="m-body">
+        <div class="fsec">
+          <div class="fsec-h"><b>The tender</b></div>
+          <div class="f-grid f-3">
+            <div class="field span3"><label>Tender name</label>
+              <input id="tdTitle" required maxlength="160" ${dis} value="${esc(t?.title||"")}" placeholder="e.g. D2D collection &amp; transportation — Losal"></div>
+            <div class="field"><label>Site / ULB / cluster</label>
+              <input id="tdSite" maxlength="120" ${dis} value="${esc(t?.site||"")}" placeholder="e.g. Losal Nagar Palika"></div>
+            <div class="field"><label>Authority</label>
+              <input id="tdAuth" maxlength="120" ${dis} value="${esc(t?.authority||"")}" placeholder="DLB, ULB, GeM"></div>
+            <div class="field"><label>Reference number</label>
+              <input id="tdRef" maxlength="80" ${dis} value="${esc(t?.ref||"")}" placeholder="NIT / bid / GeM no."></div>
+          </div>
+        </div>
+
+        <div class="fsec">
+          <div class="fsec-h"><b>Dates &amp; value</b><span class="fsec-n">still preparing, inside 7 days → it shows on the Tenders badge</span></div>
+          <div class="f-grid f-3">
+            <div class="field"><label>Status</label><select id="tdMStatus" ${dis}>
+              ${Object.entries(T_STATUS).map(([k,v])=>`<option value="${k}" ${(t?.status||"preparing")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+            <div class="field"><label>Last date of submission</label><input type="date" id="tdSubmit" ${dis} value="${esc(t?.submit||"")}"></div>
+            <div class="field"><label>Opening date</label><input type="date" id="tdOpen" ${dis} value="${esc(t?.opening||"")}"></div>
+            <div class="field"><label>Estimated value (₹)</label>
+              <input type="number" min="0" step="1" id="tdValue" ${dis} value="${t?.value??""}" placeholder="optional">
+              <div class="hint" id="tdValueEcho">${t?.value?esc(inr(t.value)):"&nbsp;"}</div></div>
+            <div class="field span2"><label>Owner</label><select id="tdOwner" ${dis}>
+              <option value="">— nobody yet —</option>${people}</select></div>
+            <div class="field span3"><label>Notes</label>
+              <textarea id="tdNotes" rows="2" ${dis} placeholder="Scope, conditions, what is outstanding">${esc(t?.notes||"")}</textarea></div>
+          </div>
+        </div>
+
+        <div class="fsec">
+          <div class="fsec-h"><b>Papers</b><span class="fsec-n">${wr?"drop a file into whichever tray it belongs in":"download only"}</span></div>
+          <div class="file-cols" id="tdFiles">${fileBox("tender")}${fileBox("work_order")}</div>
+          <input type="file" id="tdFile" multiple style="display:none">
+        </div>
+
+        <div id="tdEmd">${emdHTML()}</div>
       </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Reference number</label>
-          <input id="tdRef" maxlength="80" ${dis} value="${esc(t?.ref||"")}" placeholder="NIT / bid / GeM number"></div>
-        <div class="field"><label>Status</label><select id="tdMStatus" ${dis}>
-          ${Object.entries(T_STATUS).map(([k,v])=>`<option value="${k}" ${(t?.status||"preparing")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
-      </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Last date of submission</label><input type="date" id="tdSubmit" ${dis} value="${esc(t?.submit||"")}">
-          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Anything still being prepared inside 7 days shows on the Tenders tab badge.</div></div>
-        <div class="field"><label>Opening date</label><input type="date" id="tdOpen" ${dis} value="${esc(t?.opening||"")}"></div>
-      </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Estimated value (₹)</label>
-          <input type="number" min="0" step="1" id="tdValue" ${dis} value="${t?.value??""}" placeholder="optional"></div>
-        <div class="field"><label>Owner</label><select id="tdOwner" ${dis}>
-          <option value="">— nobody yet —</option>
-          ${liveUsers().sort((a,b)=>a.name.localeCompare(b.name)).map(u=>`<option value="${u.id}" ${t?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("")}</select></div>
-      </div>
-      <div class="field"><label>Notes</label><textarea id="tdNotes" rows="2" ${dis} placeholder="Scope, conditions, what is outstanding">${esc(t?.notes||"")}</textarea></div>
-      <div class="field"><label>Papers</label><div id="tdFiles">${fileGroup("tender")}${fileGroup("work_order")}</div>
-        <input type="file" id="tdFile" multiple style="display:none"></div>
-      <div id="tdEmd">${emdHTML()}</div>
       <div class="m-actions">
-        ${canDelete?`<button type="button" class="btn" id="tdDelete" style="color:var(--critical)">Delete tender</button>`:""}
+        ${canDelete?`<button type="button" class="btn" id="tdDelete" style="color:var(--critical)">Delete</button>`:""}
         <div class="grow"></div>
         <button type="button" class="btn" id="tdCancel">${wr?"Cancel":"Close"}</button>
         ${wr?`<button class="btn primary" type="submit">${t?"Save changes":"File this tender"}</button>`:""}</div>
@@ -3487,7 +3565,7 @@ function openTenderModal(id){
 
   let dropKind = "tender";
   function wireFiles(){
-    $("#tdFiles").innerHTML = fileGroup("tender") + fileGroup("work_order");
+    $("#tdFiles").innerHTML = fileBox("tender") + fileBox("work_order");
     document.querySelectorAll("[data-tdopen],[data-tdget]").forEach(el=>el.addEventListener("click",()=>{
       const f = TFILES.find(x=>x.id===(el.dataset.tdopen||el.dataset.tdget)); if(!f) return;
       const w = window.open("", "_blank");
@@ -3516,6 +3594,9 @@ function openTenderModal(id){
   }
   $("#tdFile").addEventListener("change",e=>{ take(e.target.files); e.target.value=""; });
   wireFiles();
+  /* 12500000 is unreadable at a glance; show it back as ₹1,25,00,000 */
+  const vIn=$("#tdValue"), vEcho=$("#tdValueEcho");
+  vIn.addEventListener("input",()=>{ vEcho.innerHTML = vIn.value==="" ? "&nbsp;" : esc(inr(vIn.value)); });
 
   function wireEmd(){
     if(!seeEmd) return;
@@ -3764,70 +3845,87 @@ function renderLegal(){
 function openLegalModal(id){
   const me = state.me;
   if(!canLegal(me)){ toast("The legal repository is for the CEO, the VPs and the Legal department."); return; }
-  const m = id ? legalOf(id) : null;
-  const mine = !m || m.createdBy===me.id || isAdmin(me);
+  const m  = id ? legalOf(id) : null;
+  const wr = canEdit(me, "legal");
+  if(!m && !wr){ toast("You can read the legal repository but not add to it."); return; }
+  const mine = wr && (!m || m.createdBy===me.id || isAdmin(me));
+  const dis  = wr ? "" : "disabled";
   let pending = [];
 
   function filesHTML(){
     const fs = m ? legalFilesOf(m.id) : [];
-    return `${fs.map(f=>`<div class="log-entry" style="padding:8px 4px">
+    return `<div class="file-box">
+      <div class="fb-h">📎 Attached<span>${(fs.length+pending.length)||"none"}</span></div>
+      ${wr?`<div class="drop-mini" id="lgDrop"><b>Choose a file</b> or drag it here — up to 25 MB each</div>`:""}
+      ${fs.map(f=>`<div class="log-entry">
         <div class="file-ic">${esc(((f.file||"").split(".").pop()||"file").slice(0,4))}</div>
         <div style="min-width:0"><div class="doc-name" data-lgopen="${f.id}">${esc(f.file||"file")}</div>
           <div class="lmeta">${esc(U(f.by)?.name||"Someone")} · ${esc(relDay(new Date(f.ts).toISOString().slice(0,10)))}${f.size?` · ${fmtBytes(f.size)}`:""}</div></div>
         <div class="acts" style="opacity:1">
-          <button type="button" class="mini-btn" data-lgget="${f.id}">Download</button>
-          <button type="button" class="mini-btn" data-lgdel="${f.id}" style="color:var(--critical)">Remove</button></div>
+          <button type="button" class="mini-btn" data-lgget="${f.id}">↓</button>
+          ${wr?`<button type="button" class="mini-btn" data-lgdel="${f.id}" style="color:var(--critical)">✕</button>`:""}</div>
       </div>`).join("")}
-      ${pending.map((f,i)=>`<div class="log-entry" style="padding:8px 4px;opacity:.75">
+      ${pending.map((f,i)=>`<div class="log-entry" style="opacity:.7">
         <div class="file-ic">${esc(((f.name||"").split(".").pop()||"file").slice(0,4))}</div>
         <div style="min-width:0"><div class="doc-name">${esc(f.name)}</div>
-          <div class="lmeta">will be attached when you save · ${fmtBytes(f.size)}</div></div>
-        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-lgdrop="${i}">Remove</button></div>
+          <div class="lmeta">on save · ${fmtBytes(f.size)}</div></div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-lgdrop="${i}">✕</button></div>
       </div>`).join("")}
-      ${(!fs.length && !pending.length)?`<div style="font-size:12.5px;color:var(--muted);padding:4px">No files attached yet.</div>`:""}`;
+      ${(!fs.length && !pending.length)?`<div style="font-size:12px;color:var(--muted);padding:2px">Nothing attached yet.</div>`:""}</div>`;
   }
 
-  modal(`<div class="modal wide">
-    <h3>${m?"Edit matter":"New legal matter"}</h3>
-    <div class="msub">${m?`Filed by ${esc(U(m.createdBy)?.name||"someone")}${m.updatedAt?` · last changed ${timeAgo(m.updatedAt)}`:""}`
-      :"Contracts, cases, notices and licences. Only the CEO, the VPs and the Legal department can ever see this."}</div>
-    <form id="legalForm" class="f-grid">
-      <div class="field"><label>Title</label>
-        <input id="lgTitle" required maxlength="140" value="${esc(m?.title||"")}" placeholder="e.g. D2D collection agreement — Sikar Nagar Parishad"></div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Type</label><select id="lgMType">
-          ${Object.entries(LEGAL_TYPES).map(([k,v])=>`<option value="${k}" ${(m?.type||"contract")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
-        <div class="field"><label>Status</label><select id="lgMStatus">
-          ${Object.entries(LEGAL_STATUS).map(([k,v])=>`<option value="${k}" ${(m?.status||"active")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+  const lgPeople = liveUsers().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(u=>`<option value="${u.id}" ${m?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("");
+  modal(`<div class="modal wide tall">
+    <div class="m-head">
+      <h3>${m?esc(m.title):"New legal matter"}</h3>
+      <div class="msub">${m
+        ? `${esc(LEGAL_TYPES[m.type]||m.type)}${m.party?" · "+esc(m.party):""} · ${esc(LEGAL_STATUS[m.status]||m.status)}${m.createdBy?` · filed by ${esc(U(m.createdBy)?.name||"someone")}`:""}${m.updatedAt?` · changed ${timeAgo(m.updatedAt)}`:""}`
+        : "Contracts, cases, notices and licences. Only the CEO, the VPs and the Legal department can ever see this."}${wr?"":" — read only"}</div>
+    </div>
+    <form id="legalForm">
+      <div class="m-body">
+        <div class="fsec">
+          <div class="fsec-h"><b>The matter</b></div>
+          <div class="f-grid f-3">
+            <div class="field span3"><label>Title</label>
+              <input id="lgTitle" required maxlength="140" ${dis} value="${esc(m?.title||"")}" placeholder="e.g. D2D collection agreement — Sikar Nagar Parishad"></div>
+            <div class="field"><label>Type</label><select id="lgMType" ${dis}>
+              ${Object.entries(LEGAL_TYPES).map(([k,v])=>`<option value="${k}" ${(m?.type||"contract")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+            <div class="field"><label>Counterparty</label>
+              <input id="lgParty" maxlength="120" ${dis} value="${esc(m?.party||"")}" placeholder="ULB, vendor, client, opposing party"></div>
+            <div class="field"><label>Project / site</label>
+              <input id="lgProject" maxlength="120" ${dis} value="${esc(m?.project||"")}" placeholder="e.g. Vidisha MSW, Cluster 1"></div>
+          </div>
+        </div>
+
+        <div class="fsec">
+          <div class="fsec-h"><b>Dates &amp; owner</b><span class="fsec-n">open, and inside 30 days → it shows on the Legal badge</span></div>
+          <div class="f-grid f-3">
+            <div class="field"><label>Status</label><select id="lgMStatus" ${dis}>
+              ${Object.entries(LEGAL_STATUS).map(([k,v])=>`<option value="${k}" ${(m?.status||"active")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+            <div class="field"><label>Start date</label><input type="date" id="lgStart" ${dis} value="${esc(m?.start||"")}"></div>
+            <div class="field"><label>Expiry / next date</label><input type="date" id="lgExpiry" ${dis} value="${esc(m?.expiry||"")}"></div>
+            <div class="field"><label>Reference number</label>
+              <input id="lgRef" maxlength="80" ${dis} value="${esc(m?.ref||"")}" placeholder="Agreement / case / licence no."></div>
+            <div class="field span2"><label>Owner</label><select id="lgOwner" ${dis}>
+              <option value="">— nobody yet —</option>${lgPeople}</select></div>
+            <div class="field span3"><label>Notes</label>
+              <textarea id="lgNotes" rows="2" ${dis} placeholder="Terms worth remembering, what is outstanding, who to call">${esc(m?.notes||"")}</textarea></div>
+          </div>
+        </div>
+
+        <div class="fsec">
+          <div class="fsec-h"><b>Attachments</b></div>
+          <div id="lgFiles">${filesHTML()}</div>
+          <input type="file" id="lgFile" multiple style="display:none">
+        </div>
       </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Counterparty</label>
-          <input id="lgParty" maxlength="120" value="${esc(m?.party||"")}" placeholder="The ULB, vendor, client or opposing party"></div>
-        <div class="field"><label>Project / site</label>
-          <input id="lgProject" maxlength="120" value="${esc(m?.project||"")}" placeholder="e.g. Vidisha MSW, Cluster 1"></div>
-      </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Reference number</label>
-          <input id="lgRef" maxlength="80" value="${esc(m?.ref||"")}" placeholder="Agreement / case / licence no."></div>
-        <div class="field"><label>Owner</label><select id="lgOwner">
-          <option value="">— nobody yet —</option>
-          ${liveUsers().sort((a,b)=>a.name.localeCompare(b.name)).map(u=>`<option value="${u.id}" ${m?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("")}</select></div>
-      </div>
-      <div class="f-grid f-2">
-        <div class="field"><label>Start date</label><input type="date" id="lgStart" value="${esc(m?.start||"")}"></div>
-        <div class="field"><label>Expiry / next date</label><input type="date" id="lgExpiry" value="${esc(m?.expiry||"")}">
-          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Anything open and inside 30 days shows on the Legal tab badge.</div></div>
-      </div>
-      <div class="field"><label>Notes</label><textarea id="lgNotes" rows="3" placeholder="Terms worth remembering, what is outstanding, who to call">${esc(m?.notes||"")}</textarea></div>
-      <div class="field"><label>Attachments</label>
-        <div class="doc-drop" id="lgDrop" style="padding:12px"><b>Choose a file</b> or drag it here — up to 25 MB each</div>
-        <input type="file" id="lgFile" multiple style="display:none">
-        <div id="lgFiles">${filesHTML()}</div></div>
       <div class="m-actions">
-        ${m&&mine?`<button type="button" class="btn" id="lgDelete" style="color:var(--critical)">Delete matter</button>`:""}
+        ${m&&mine?`<button type="button" class="btn" id="lgDelete" style="color:var(--critical)">Delete</button>`:""}
         <div class="grow"></div>
-        <button type="button" class="btn" id="lgCancel">Cancel</button>
-        <button class="btn primary" type="submit">${m?"Save changes":"File this matter"}</button></div>
+        <button type="button" class="btn" id="lgCancel">${wr?"Cancel":"Close"}</button>
+        ${wr?`<button class="btn primary" type="submit">${m?"Save changes":"File this matter"}</button>`:""}</div>
     </form></div>`);
 
   function wireFiles(){
@@ -3844,6 +3942,13 @@ function openLegalModal(id){
     document.querySelectorAll("[data-lgdrop]").forEach(el=>el.addEventListener("click",()=>{
       pending.splice(Number(el.dataset.lgdrop),1); wireFiles();
     }));
+    const drop = $("#lgDrop");
+    if(drop){
+      drop.addEventListener("click",()=>$("#lgFile").click());
+      ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add("hot"); }));
+      ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove("hot"); }));
+      drop.addEventListener("drop",e=>take(e.dataTransfer&&e.dataTransfer.files));
+    }
   }
   function take(list){
     [...(list||[])].forEach(f=>{
@@ -3852,12 +3957,8 @@ function openLegalModal(id){
     });
     wireFiles();
   }
-  const drop=$("#lgDrop"), inp=$("#lgFile");
-  drop.addEventListener("click",()=>inp.click());
+  const inp=$("#lgFile");
   inp.addEventListener("change",()=>{ take(inp.files); inp.value=""; });
-  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add("hot"); }));
-  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove("hot"); }));
-  drop.addEventListener("drop",e=>take(e.dataTransfer&&e.dataTransfer.files));
   wireFiles();
 
   $("#lgCancel").addEventListener("click",closeModal);
@@ -3875,6 +3976,7 @@ function openLegalModal(id){
 
   $("#legalForm").addEventListener("submit", async e=>{
     e.preventDefault();
+    if(!wr) return;
     const title = $("#lgTitle").value.trim(); if(!title) return;
     const vals = {title,
       matter_type:$("#lgMType").value, status:$("#lgMStatus").value,
