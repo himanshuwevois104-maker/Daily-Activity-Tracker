@@ -644,7 +644,8 @@ const LEVELS = { ceo:{label:"CEO",rank:4}, vp:{label:"VP",rank:3}, manager:{labe
 let DEPTS = [], ROLES = [], USERS = [], PIPES = [], TASKS = [],
     LOG_CATS = [], LOGS = [], REQS = [], EVENTS = [], DOCS = [],
     GROUPS = [], GMEMS = [], MSGS = [], KPIS = [], KTARGETS = [],
-    LEGAL = [], LEGAL_FILES = [];
+    LEGAL = [], LEGAL_FILES = [],
+    TENDERS = [], TFILES = [], EMDS = [];
 const U = id => USERS.find(u=>u.id===id);
 
 /* ---------------- Supabase ---------------- */
@@ -681,10 +682,16 @@ let PRIVPIPES_READY = false;
 /* leadership arrives with TRACKER-UPDATE-09.sql. Until it is run the checkbox
    is not offered and never sent, exactly like private_pipes above. */
 let LEADERSHIP_READY = false;
+/* access arrives with TRACKER-UPDATE-10.sql — the list of screens the Admin
+   has handed this job role. A bare key is view, key+":edit" is permission to
+   change. Until the migration is run the Admin panel does not offer it. */
+let ACCESS_READY = false;
 const mapRole = r => { if("private_pipes" in r) PRIVPIPES_READY = true;
   if("leadership" in r) LEADERSHIP_READY = true;
+  if("access" in r) ACCESS_READY = true;
   return {id:r.id, name:r.name, dept:r.dept, level:r.level,
     pipes:Array.isArray(r.pipes)?r.pipes:JSON.parse(r.pipes||"[]"),
+    access:Array.isArray(r.access)?r.access:JSON.parse(r.access||"[]"),
     privatePipes: !!r.private_pipes, leadership: !!r.leadership, active:r.active}; };
 const mapUser = p => ({id:p.id, name:p.name, email:p.email||"", role:p.role_id, level:p.level,
   mgr:p.mgr_id, dept:p.dept, admin:!!p.admin, active:p.active!==false, c:p.color||1});
@@ -725,6 +732,20 @@ const mapLegal = m => ({id:m.id, title:m.title, type:m.matter_type||"other",
   owner:m.owner, notes:m.notes||"", createdBy:m.created_by,
   ts:new Date(m.created_at).getTime(),
   updatedAt:m.updated_at?new Date(m.updated_at).getTime():null});
+const mapTender = t => ({id:t.id, title:t.title, site:t.site_name||"", ref:t.ref_no||"",
+  authority:t.authority||"", status:t.status||"preparing",
+  submit:t.submit_date||"", opening:t.opening_date||"",
+  value:t.value_amount===null||t.value_amount===undefined?null:Number(t.value_amount),
+  owner:t.owner, notes:t.notes||"", createdBy:t.created_by,
+  ts:new Date(t.created_at).getTime(),
+  updatedAt:t.updated_at?new Date(t.updated_at).getTime():null});
+const mapTFile = f => ({id:f.id, tender:f.tender_id, kind:f.kind||"tender", title:f.title||"",
+  path:f.path, file:f.file_name||"", mime:f.mime||"", size:Number(f.size_bytes)||0,
+  by:f.uploaded_by, ts:new Date(f.created_at).getTime()});
+const mapEmd = e => ({id:e.id, tender:e.tender_id, site:e.site_name||"",
+  amount:Number(e.amount)||0, mode:e.mode||"online", status:e.status||"not_received",
+  paidOn:e.paid_on||"", receivedOn:e.received_on||"", ref:e.ref_no||"", note:e.note||"",
+  createdBy:e.created_by, ts:new Date(e.created_at).getTime()});
 const mapLegalFile = f => ({id:f.id, legal:f.legal_id, path:f.path, file:f.file_name||"",
   mime:f.mime||"", size:Number(f.size_bytes)||0, by:f.uploaded_by,
   ts:new Date(f.created_at).getTime()});
@@ -749,6 +770,19 @@ async function loadLegal(){
   catch(e){ LEGAL_READY = false; console.warn("Legal repository unavailable:", e.message||e); return [[],[]]; }
 }
 
+/* The tender register arrives with TRACKER-UPDATE-10.sql. EMD is fetched on
+   its own and allowed to come back empty: for somebody who may see tenders but
+   not EMD — an AVP, a DGM — an empty list is the database doing its job, not a
+   failure. Only a missing TABLE flips TENDERS_READY off. */
+let TENDERS_READY = true;
+async function loadTenders(){
+  try{
+    const [t,f] = await Promise.all([DB.sel("dat_tenders"), DB.sel("dat_tender_files")]);
+    const e = await DB.sel("dat_tender_emd").catch(()=>[]);
+    TENDERS_READY = true; return [t,f,e];
+  }catch(err){ TENDERS_READY = false; console.warn("Tenders unavailable:", err.message||err); return [[],[],[]]; }
+}
+
 /* Groups arrive with TRACKER-UPDATE-06.sql; until it is run the tab says so
    instead of the whole app failing to load. */
 let GROUPS_READY = true;
@@ -770,14 +804,14 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg,td] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
     sb.from("dat_events").select("*").order("created_at",{ascending:false}).limit(40)
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
-    DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(), loadLegal(),
+    DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(), loadLegal(), loadTenders(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -800,6 +834,9 @@ async function loadAll(){
   KTARGETS = kp[1].map(mapKTgt);
   LEGAL       = lg[0].map(mapLegal).sort((a,b)=>(a.expiry||"9999").localeCompare(b.expiry||"9999") || b.ts-a.ts);
   LEGAL_FILES = lg[1].map(mapLegalFile).sort((a,b)=>b.ts-a.ts);
+  TENDERS = td[0].map(mapTender).sort((a,b)=>(a.submit||"9999").localeCompare(b.submit||"9999") || b.ts-a.ts);
+  TFILES  = td[1].map(mapTFile).sort((a,b)=>b.ts-a.ts);
+  EMDS    = td[2].map(mapEmd).sort((a,b)=>a.site.localeCompare(b.site) || a.ts-b.ts);
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -814,6 +851,7 @@ const state = {
   logWho:null,   // person filter on daily-log view (managers+)
   docWho:null,   // person filter on documents view
   legalQ:"", legalType:"all", legalStatus:"open",   // filters on the legal repository
+  tenderQ:"", tenderStatus:"open",                  // filters on the tender register
   group:null,    // group open on the groups view
   period:"today",// window the team summary and the report cover
   kpiMonth:null, // month shown on the KPI screen (set at sign-in)
@@ -830,20 +868,51 @@ const canRequest = u => u.level==="ceo" || u.level==="vp";   // may raise a requ
 /* The org chart lays out the whole reporting line, so it stays with leadership:
    CEO, VP and Admins only. Managers and team members never see the Team tab. */
 const canSeeTeam = u => !!u && (u.level==="ceo" || u.level==="vp" || !!u.admin);
-/* LEADERSHIP — the CEO and every VP by definition, plus anyone whose job role
-   carries the "leadership access" switch. That switch is how AVP and DGM get a
-   leadership READ without becoming a new rung on the ladder: it widens what
-   they can see and nothing else — no task edits, no accounts, no org chart.
-   Mirrors dat_is_leadership() in TRACKER-UPDATE-09.sql; the database enforces. */
-const isLeadership = u => !!u && (u.level==="ceo" || u.level==="vp"
-  || (!!roleOf(u)?.leadership && roleOf(u)?.active !== false));
-/* THE LEGAL REPOSITORY — the CEO, every VP, and anyone sitting in the Legal
-   department, whether that comes from their profile or from their job role.
-   All three groups may add and edit; only the person who filed a matter (or an
-   Admin) may delete it. Mirrors dat_can_legal() in TRACKER-UPDATE-09.sql. */
-const canLegal = u => !!u && (u.level==="ceo" || u.level==="vp"
-  || (u.dept||"").toLowerCase()==="legal"
-  || (roleOf(u)?.dept||"").toLowerCase()==="legal");
+/* ---- the guarded screens, in ONE place --------------------------------
+   Every screen that is not for everybody is named by a key. The Admin hands a
+   key to a JOB ROLE (Admin → Job roles → What this role can see); a bare key
+   lets them look, key+":edit" lets them change things. The CEO and every VP
+   hold every key, always. Two departments carry their own keys so a new hire
+   works the moment their department is right: Legal gets legal, Tender gets
+   tender and emd. Mirrors dat_can() / dat_can_edit() in TRACKER-UPDATE-10.sql
+   — the database is what actually enforces this, these two only decide what
+   the screen offers to draw. */
+const ACCESS_MODULES = [
+  {key:"docs_all", label:"Everyone's documents",
+   hint:"All documents company-wide, and the Documents panel on the Dashboard. This is what AVP and DGM need."},
+  {key:"legal", label:"Legal repository",
+   hint:"Contracts, cases, notices and licences."},
+  {key:"tender", label:"Tender documents",
+   hint:"The tender register, tender papers and work orders — without the EMD figures."},
+  {key:"emd", label:"EMD details",
+   hint:"Amount, site and whether it has come back. Sits inside a tender, but is hidden separately."},
+];
+const deptKeys = d => { d=(d||"").toLowerCase();
+  return d==="legal" ? ["legal"] : d==="tender" ? ["tender","emd"] : []; };
+function can(u, key){
+  if(!u) return false;
+  if(u.level==="ceo" || u.level==="vp") return true;
+  const r = roleOf(u);
+  if(r && r.active!==false){
+    const a = r.access || [];
+    if(a.includes(key) || a.includes(key+":edit")) return true;
+    if(key==="docs_all" && r.leadership) return true;
+    if(deptKeys(r.dept).includes(key)) return true;
+  }
+  return deptKeys(u.dept).includes(key);
+}
+function canEdit(u, key){
+  if(!u) return false;
+  if(u.level==="ceo" || u.level==="vp") return true;
+  const r = roleOf(u);
+  if(r && r.active!==false){
+    if((r.access||[]).includes(key+":edit")) return true;
+    if(deptKeys(r.dept).includes(key)) return true;
+  }
+  return deptKeys(u.dept).includes(key);
+}
+const isLeadership = u => can(u, "docs_all");
+const canLegal     = u => can(u, "legal");
 const isLive   = u => u.active !== false;
 const liveUsers = () => USERS.filter(isLive);
 const pendingReqs = () => REQS.filter(r=>r.status==="pending");
@@ -1023,6 +1092,7 @@ const IC = {
   kpi:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>',
   doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M13.5 3v5.5H19"/><path d="M9 13h6M9 16.5h4"/></svg>',
   legal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v17M5.5 20.5h13"/><path d="M4 8.5h16"/><path d="M7.2 8.5 4.4 14.4a3 3 0 0 0 5.6 0z"/><path d="M16.8 8.5l-2.8 5.9a3 3 0 0 0 5.6 0z"/></svg>',
+  tender:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.2h8.5L19 7.7V19a1.8 1.8 0 0 1-1.8 1.8H6A1.8 1.8 0 0 1 4.2 19V5A1.8 1.8 0 0 1 6 3.2z"/><path d="M14 3.4V8h4.6"/><path d="M8 12.5h7M8 16h4.5"/></svg>',
   team:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"/><circle cx="17" cy="9" r="2.5"/><path d="M15.8 14.4c2.4.2 4.2 1.8 4.7 4.4"/></svg>',
   admin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l7 3v5.6c0 4.3-2.9 8.1-7 9.3-4.1-1.2-7-5-7-9.3V5.8z"/><path d="M9.2 12.2l2 2 3.6-3.9"/></svg>',
   inbox:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 13.5h4l1.4 2.4h6.2l1.4-2.4h4"/><path d="M5.6 5h12.8l2.1 8.5v3.9a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6v-3.9z"/></svg>',
@@ -1316,6 +1386,7 @@ const NAVS = [
 ];
 const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
   dailyup:"Daily Update", kpis:"KPIs", documents:"Documents", legal:"Legal repository",
+  tenders:"Tenders",
   groups:"Groups", team:"Team",
   review:"Employee review", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
@@ -1329,6 +1400,7 @@ function navsFor(me){
   /* Legal sits with Documents — a register, not a personal screen. Only the
      CEO, the VPs and the Legal department ever see the tab at all. */
   if(canLegal(me)) n.push({id:"legal", label:"Legal", ic:IC.legal, count:legalAlerts().length});
+  if(can(me,"tender")) n.push({id:"tenders", label:"Tenders", ic:IC.tender, count:tenderAlerts().length});
   if(GROUPS_READY && (myGroups().length || canRunGroups(me)))
     n.push({id:"groups", label:"Groups", ic:IC.chat, count:unreadTotal()});
   if(canSeeTeam(me)) n.push({id:"team", label:"Team", ic:IC.team});
@@ -1464,7 +1536,7 @@ function subscribeRealtime(){
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_task_events"}, onTaskEventLive);
   /* group chat: realtime only delivers messages from groups you belong to */
   chan.on("postgres_changes",{event:"INSERT",schema:"public",table:"dat_messages"}, onMessageLive);
-  ["dat_groups","dat_group_members","dat_kpis","dat_kpi_targets","dat_legal","dat_legal_files"].forEach(t=>
+  ["dat_groups","dat_group_members","dat_kpis","dat_kpi_targets","dat_legal","dat_legal_files","dat_tenders","dat_tender_files","dat_tender_emd"].forEach(t=>
     chan.on("postgres_changes",{event:"*",schema:"public",table:t}, queueReload));
   chan.subscribe(status=>{ REALTIME_STATE = status || "unknown"; });
 }
@@ -1492,6 +1564,9 @@ function render(){
     : state.view==="requests" ? "Ask the Admin to create a job role or account"
     : state.view==="documents" ? "Files you attach are seen by your reporting line, the VPs and the CEO"
     : state.view==="legal" ? "Contracts, cases, notices and licences — the CEO, the VPs and Legal, and nobody else"
+    : state.view==="tenders" ? (can(state.me,"emd")
+        ? "Tender papers, work orders and EMD — the CEO, the VPs and the Tender team"
+        : "Tender papers and work orders — EMD figures are not part of your access")
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
     : state.view==="dailyup" ? "One day at a time — who updated what, and who did not"
@@ -1500,14 +1575,17 @@ function render(){
     : fmtDateLong(TODAY);
   $("#quickAdd").classList.toggle("hidden",
     state.view==="admin"||state.view==="requests"||state.view==="groups"
-    ||state.view==="review"||state.view==="dailyup");
+    ||state.view==="review"||state.view==="dailyup"
+    ||(state.view==="tenders" && !canEdit(me,"tender"))
+    ||(state.view==="legal"   && !canEdit(me,"legal")));
   $("#quickAddLbl").textContent = state.view==="documents" ? "Add document"
+    : state.view==="tenders" ? "New tender"
     : state.view==="legal" ? "New matter"
     : state.view==="kpis" ? "Set targets" : "New task";
   applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily,
     dailyup:renderDailyUp, kpis:renderKpis,
-    documents:renderDocs, legal:renderLegal, groups:renderGroups, team:renderTeam, review:renderReview,
+    documents:renderDocs, legal:renderLegal, tenders:renderTenders, groups:renderGroups, team:renderTeam, review:renderReview,
     admin:renderAdmin, requests:renderRequests}[state.view])();
 }
 
@@ -3143,6 +3221,396 @@ function renderDocs(){
   showPick();
 }
 
+/* ================= tender register =================
+   One row per tender, with two things hanging off it that are NOT equally
+   visible. The papers — the tender documents and the work orders — are open to
+   the CEO, the VPs, AVP, DGM and the Tender team. The EMD figures are open to
+   the CEO, the VPs and the Tender team alone. That is why EMD lives in its own
+   table, dat_tender_emd, under its own rule: row-level security hides rows,
+   not columns, so the only way an AVP can read a tender without reading its
+   EMD is for the EMD to be somewhere else. Everything here mirrors dat_can()
+   and dat_can_edit() in TRACKER-UPDATE-10.sql; the database enforces it. */
+const TENDER_BUCKET = "dat-tender";
+const T_STATUS   = {preparing:"Preparing", submitted:"Submitted", won:"Won",
+                    lost:"Lost", dropped:"Dropped", closed:"Closed"};
+const T_LIVE     = ["preparing","submitted"];
+const EMD_MODE   = {online:"Online", dd:"DD", bg:"Bank guarantee", fdr:"FDR",
+                    exempt:"Exempt", other:"Other"};
+const T_KINDS    = {tender:"Tender documents", work_order:"Work orders", other:"Other papers"};
+const tenderOf   = id => TENDERS.find(t=>t.id===id);
+const tFilesOf   = (id,kind) => TFILES.filter(f=>f.tender===id && (!kind || f.kind===kind));
+const emdOf      = id => EMDS.filter(e=>e.tender===id);
+const inr        = v => (v===null||v===undefined||v==="") ? "—"
+  : "₹" + Number(v).toLocaleString("en-IN",{maximumFractionDigits:0});
+/* days until the last date of submission — negative once it is past */
+function tenderDays(t){ if(!t.submit) return null;
+  return Math.round((new Date(t.submit+"T00:00:00") - todayD) / DAY); }
+/* what needs chasing: still being prepared, and closing within a week */
+function tenderAlerts(){
+  if(!can(state.me,"tender")) return [];
+  return TENDERS.filter(t=>t.status==="preparing" && tenderDays(t)!==null && tenderDays(t)<=7);
+}
+function tenderDateChip(t){
+  const d = tenderDays(t);
+  if(d===null) return `<span style="color:var(--muted)">—</span>`;
+  if(!T_LIVE.includes(t.status)) return `<span style="color:var(--muted)">${esc(fmtDate(t.submit))}</span>`;
+  if(d < 0)  return `<span class="chip overdue">${esc(fmtDate(t.submit))} · closed</span>`;
+  if(d <= 7) return `<span class="chip today">${esc(fmtDate(t.submit))} · ${d}d left</span>`;
+  return esc(fmtDate(t.submit));
+}
+const tStatusChip = t => `<span class="chip ${t.status==="won"?"done":t.status==="lost"||t.status==="dropped"?"overdue":t.status==="submitted"?"today":"p-low"}">${esc(T_STATUS[t.status]||t.status)}</span>`;
+
+async function uploadTenderFile(tenderId, kind, file){
+  if(file.size > DOC_MAX){ toast(`"${file.name}" is ${fmtBytes(file.size)} — the limit is 25 MB.`); return null; }
+  const safe = file.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+  const path = `${tenderId}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${safe}`;
+  const {error:upErr} = await sb.storage.from(TENDER_BUCKET)
+    .upload(path, file, {contentType:file.type||"application/octet-stream", upsert:false});
+  if(upErr){
+    console.error(upErr);
+    toast(/bucket not found/i.test(upErr.message||"")
+      ? "Tender file storage is not set up yet — run TRACKER-UPDATE-10.sql."
+      : (upErr.message || "Upload failed."));
+    return null;
+  }
+  const row = await guard(()=>DB.ins("dat_tender_files",{tender_id:tenderId, kind, path,
+    file_name:file.name, mime:file.type||"", size_bytes:file.size, uploaded_by:state.me.id}));
+  if(!row){ await sb.storage.from(TENDER_BUCKET).remove([path]).catch(()=>{}); return null; }
+  const mapped = mapTFile(row); TFILES.unshift(mapped); return mapped;
+}
+async function openTenderFile(f, asDownload, win){
+  const {data,error} = await sb.storage.from(TENDER_BUCKET)
+    .createSignedUrl(f.path, 120, asDownload ? {download: f.file||true} : {});
+  if(error||!data){ if(win) win.close(); console.error(error);
+    toast("Could not open that file — it may have been removed."); return; }
+  if(win) win.location.href = data.signedUrl; else window.open(data.signedUrl,"_blank","noopener");
+}
+async function deleteTenderFile(f){
+  if(await guard(()=>DB.del("dat_tender_files", f.id).then(()=>true)) === null) return false;
+  await sb.storage.from(TENDER_BUCKET).remove([f.path]).catch(()=>{});
+  const i = TFILES.findIndex(x=>x.id===f.id); if(i>-1) TFILES.splice(i,1);
+  return true;
+}
+
+function tenderRows(){
+  const q = state.tenderQ.trim().toLowerCase();
+  return TENDERS.filter(t=>{
+    if(state.tenderStatus==="open"   && !T_LIVE.includes(t.status)) return false;
+    if(state.tenderStatus==="alerts" && !(t.status==="preparing" && tenderDays(t)!==null && tenderDays(t)<=7)) return false;
+    if(!["all","open","alerts"].includes(state.tenderStatus) && t.status!==state.tenderStatus) return false;
+    if(!q) return true;
+    return [t.title, t.site, t.ref, t.authority, t.notes, U(t.owner)?.name||""]
+      .join(" ").toLowerCase().includes(q);
+  });
+}
+
+function renderTenders(){
+  const me = state.me, wr = canEdit(me,"tender"), seeEmd = can(me,"emd");
+  const rows = tenderRows();
+  const live = TENDERS.filter(t=>T_LIVE.includes(t.status)).length;
+  const soon = tenderAlerts().length;
+  const won  = TENDERS.filter(t=>t.status==="won").length;
+  const pendingEmd = EMDS.filter(e=>e.status==="not_received")
+    .reduce((sum,e)=>sum+e.amount, 0);
+
+  $("#view").innerHTML = `
+  ${!TENDERS_READY?`<div class="card card-pad" style="margin-bottom:18px;border-color:var(--critical)">
+    <b>The tender register is not switched on yet.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:5px">Run <code>TRACKER-UPDATE-10.sql</code>
+    in the Supabase SQL Editor, then reload this page.</div></div>`:""}
+  ${!wr?`<div class="card card-pad" style="margin-bottom:16px">
+    <b>You can read this register, not change it.</b>
+    <div style="font-size:13px;color:var(--ink2);margin-top:4px">Tenders and work orders are kept by the
+    Tender team. ${seeEmd?"":"EMD figures are not part of your access, so they are not shown."}</div></div>`:""}
+
+  <div class="grid g-kpis" style="margin-bottom:16px">
+    <div class="card tile"><div class="lbl">Tenders on file</div><div class="val">${TENDERS.length}</div>
+      <div class="delta">${live} still live</div></div>
+    <div class="card tile"><div class="lbl">Closing in 7 days</div>
+      <div class="val" style="${soon?'color:var(--warning)':''}">${soon}</div>
+      <div class="delta">${soon?"still being prepared":"nothing closing"}</div></div>
+    <div class="card tile"><div class="lbl">Won</div><div class="val">${won}</div>
+      <div class="delta">of ${TENDERS.length} filed</div></div>
+    ${seeEmd?`<div class="card tile"><div class="lbl">EMD not yet back</div>
+      <div class="val" style="${pendingEmd?'color:var(--warning)':''};font-size:22px">${inr(pendingEmd)}</div>
+      <div class="delta">${EMDS.filter(e=>e.status==="not_received").length} line${EMDS.filter(e=>e.status==="not_received").length===1?"":"s"} outstanding</div></div>`:""}
+  </div>
+
+  <div class="card card-pad" style="margin-bottom:16px">
+    <div class="qa-form" style="grid-template-columns:1fr 200px${wr?" auto":""}">
+      <input id="tdQ" placeholder="Search tender, site, reference, authority or note" value="${esc(state.tenderQ)}">
+      <select id="tdStatus">
+        <option value="open"   ${state.tenderStatus==="open"?"selected":""}>Live tenders</option>
+        <option value="alerts" ${state.tenderStatus==="alerts"?"selected":""}>Closing in 7 days</option>
+        <option value="all"    ${state.tenderStatus==="all"?"selected":""}>Everything</option>
+        ${Object.entries(T_STATUS).map(([k,v])=>`<option value="${k}" ${state.tenderStatus===k?"selected":""}>${esc(v)} only</option>`).join("")}</select>
+      ${wr?`<button class="btn primary" id="tdNew">＋ New tender</button>`:""}
+    </div>
+  </div>
+
+  ${rows.length?`<div class="card card-pad" style="padding-top:6px">
+    <div style="overflow-x:auto"><table class="simple">
+      <thead><tr><th>Tender</th><th>Site</th><th>Authority</th><th>Submission</th>
+        <th>Status</th><th>Owner</th><th>Papers</th>${seeEmd?"<th>EMD</th>":""}</tr></thead>
+      <tbody>${rows.map(t=>{ const u=U(t.owner);
+        const nt=tFilesOf(t.id,"tender").length, nw=tFilesOf(t.id,"work_order").length;
+        const es=emdOf(t.id), got=es.filter(e=>e.status==="received").length;
+        return `<tr class="click" data-tender="${t.id}">
+          <td><b>${esc(t.title)}</b>${t.ref?`<div style="font-size:11.5px;color:var(--muted)">${esc(t.ref)}</div>`:""}</td>
+          <td>${esc(t.site||"—")}</td>
+          <td>${esc(t.authority||"—")}</td>
+          <td>${tenderDateChip(t)}</td>
+          <td>${tStatusChip(t)}</td>
+          <td>${u?esc(u.name):`<span style="color:var(--muted)">unassigned</span>`}</td>
+          <td style="white-space:nowrap">${nt||nw?`${nt?`📄 ${nt}`:""}${nt&&nw?" · ":""}${nw?`🧾 ${nw}`:""}`:`<span style="color:var(--muted)">—</span>`}</td>
+          ${seeEmd?`<td style="white-space:nowrap">${es.length
+            ? `${inr(es.reduce((a,e)=>a+e.amount,0))}<div style="font-size:11.5px;color:${got===es.length?"var(--good-text)":"var(--muted)"}">${got}/${es.length} received</div>`
+            : `<span style="color:var(--muted)">—</span>`}</td>`:""}
+        </tr>`;}).join("")}</tbody></table></div></div>`
+  :`<div class="card card-pad" style="text-align:center;color:var(--muted)">
+      ${TENDERS.length?"Nothing matches those filters.":`No tenders on file yet.${wr?" Add the first one above.":""}`}</div>`}`;
+
+  const q=$("#tdQ");
+  q.addEventListener("input",()=>{ state.tenderQ=q.value; const at=q.selectionStart; renderTenders();
+    const nq=$("#tdQ"); nq.focus(); try{ nq.setSelectionRange(at,at); }catch(_){} });
+  $("#tdStatus").addEventListener("change",e=>{ state.tenderStatus=e.target.value; renderTenders(); });
+  const nb=$("#tdNew"); if(nb) nb.addEventListener("click",()=>openTenderModal(null));
+  document.querySelectorAll("[data-tender]").forEach(tr=>tr.addEventListener("click",()=>openTenderModal(tr.dataset.tender)));
+}
+
+/* One tender: its fields, its papers in two groups, and its EMD lines.
+   Everything is held locally and written on save, so a tender that is still
+   being typed never leaves a stray file or a half EMD line behind. */
+function openTenderModal(id){
+  const me = state.me;
+  if(!can(me,"tender")){ toast("The tender register is for the CEO, the VPs and the Tender team."); return; }
+  const t  = id ? tenderOf(id) : null;
+  const wr = canEdit(me,"tender");
+  if(!t && !wr){ toast("You can read tenders but not add them."); return; }
+  const seeEmd = can(me,"emd"), wrEmd = canEdit(me,"emd");
+  const canDelete = t && wr && (t.createdBy===me.id || isAdmin(me));
+  const dis = wr ? "" : "disabled";
+  let pending = {tender:[], work_order:[]};          // files chosen, not yet uploaded
+  let emdRows = t ? emdOf(t.id).map(e=>({...e})) : [];
+  let emdGone = [];                                  // ids to delete on save
+
+  function fileGroup(kind){
+    const fs = t ? tFilesOf(t.id, kind) : [];
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px">${esc(T_KINDS[kind])}</div>
+      ${wr?`<div class="doc-drop" data-drop="${kind}" style="padding:11px;font-size:12.5px"><b>Choose a file</b> or drag it here</div>`:""}
+      <div>${fs.map(f=>`<div class="log-entry" style="padding:7px 4px">
+        <div class="file-ic">${esc(((f.file||"").split(".").pop()||"file").slice(0,4))}</div>
+        <div style="min-width:0"><div class="doc-name" data-tdopen="${f.id}">${esc(f.file||"file")}</div>
+          <div class="lmeta">${esc(U(f.by)?.name||"Someone")}${f.size?` · ${fmtBytes(f.size)}`:""}</div></div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tdget="${f.id}">Download</button>
+          ${wr?`<button type="button" class="mini-btn" data-tddel="${f.id}" style="color:var(--critical)">Remove</button>`:""}</div>
+      </div>`).join("")}
+      ${pending[kind].map((f,i)=>`<div class="log-entry" style="padding:7px 4px;opacity:.75">
+        <div class="file-ic">${esc(((f.name||"").split(".").pop()||"file").slice(0,4))}</div>
+        <div style="min-width:0"><div class="doc-name">${esc(f.name)}</div>
+          <div class="lmeta">attached when you save · ${fmtBytes(f.size)}</div></div>
+        <div class="acts" style="opacity:1"><button type="button" class="mini-btn" data-tddrop="${kind}:${i}">Remove</button></div>
+      </div>`).join("")}
+      ${(!fs.length && !pending[kind].length)?`<div style="font-size:12px;color:var(--muted);padding:3px">Nothing yet.</div>`:""}</div></div>`;
+  }
+
+  function emdHTML(){
+    if(!seeEmd) return "";
+    const total = emdRows.reduce((a,e)=>a+Number(e.amount||0),0);
+    const got   = emdRows.filter(e=>e.status==="received").length;
+    return `<div class="field"><label>EMD${emdRows.length?` — ${inr(total)}, ${got} of ${emdRows.length} received`:""}</label>
+      <div style="font-size:11.5px;color:var(--muted);margin:-2px 0 7px">One line per site. Only the CEO, the VPs and the Tender team can see this section at all.</div>
+      <div style="overflow-x:auto"><table class="simple">
+        <thead><tr><th>Site</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Status</th><th>Received on</th>${wrEmd?"<th></th>":""}</tr></thead>
+        <tbody>${emdRows.length?emdRows.map((e,i)=>wrEmd?`<tr>
+          <td><input class="emdf" data-i="${i}" data-f="site" value="${esc(e.site||"")}" placeholder="Site / ULB" style="width:150px"></td>
+          <td><input class="emdf" data-i="${i}" data-f="amount" type="number" min="0" step="1" value="${e.amount||0}" style="width:110px"></td>
+          <td><select class="emdf" data-i="${i}" data-f="mode">${Object.entries(EMD_MODE).map(([k,v])=>`<option value="${k}" ${e.mode===k?"selected":""}>${esc(v)}</option>`).join("")}</select></td>
+          <td><input class="emdf" data-i="${i}" data-f="ref" value="${esc(e.ref||"")}" placeholder="DD / UTR" style="width:120px"></td>
+          <td><select class="emdf" data-i="${i}" data-f="status">
+            <option value="not_received" ${e.status!=="received"?"selected":""}>Not received</option>
+            <option value="received" ${e.status==="received"?"selected":""}>Received</option></select></td>
+          <td><input class="emdf" data-i="${i}" data-f="receivedOn" type="date" value="${esc(e.receivedOn||"")}"></td>
+          <td><button type="button" class="mini-btn" data-emddel="${i}" style="color:var(--critical)">✕</button></td>
+        </tr>`:`<tr>
+          <td>${esc(e.site||"—")}</td><td>${inr(e.amount)}</td><td>${esc(EMD_MODE[e.mode]||e.mode)}</td>
+          <td>${esc(e.ref||"—")}</td>
+          <td><span class="chip ${e.status==="received"?"done":"today"}">${e.status==="received"?"Received":"Not received"}</span></td>
+          <td>${e.receivedOn?esc(fmtDate(e.receivedOn)):"—"}</td>
+        </tr>`).join("")
+        :`<tr><td colspan="${wrEmd?7:6}" style="color:var(--muted)">No EMD recorded for this tender.</td></tr>`}</tbody></table></div>
+      ${wrEmd?`<button type="button" class="btn sm" id="emdAdd" style="margin-top:8px">＋ Add an EMD line</button>`:""}</div>`;
+  }
+
+  modal(`<div class="modal wide">
+    <h3>${t?(wr?"Edit tender":"Tender"):"New tender"}</h3>
+    <div class="msub">${t?`Filed by ${esc(U(t.createdBy)?.name||"someone")}${t.updatedAt?` · last changed ${timeAgo(t.updatedAt)}`:""}`
+      :"Tender papers and work orders, and the EMD against them."}${wr?"":" · you can read this, not change it"}</div>
+    <form id="tenderForm" class="f-grid">
+      <div class="field"><label>Tender</label>
+        <input id="tdTitle" required maxlength="160" ${dis} value="${esc(t?.title||"")}" placeholder="e.g. D2D collection &amp; transportation — Losal"></div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Site / ULB / cluster</label>
+          <input id="tdSite" maxlength="120" ${dis} value="${esc(t?.site||"")}" placeholder="e.g. Losal Nagar Palika"></div>
+        <div class="field"><label>Authority</label>
+          <input id="tdAuth" maxlength="120" ${dis} value="${esc(t?.authority||"")}" placeholder="Who floated it — DLB, ULB, GeM"></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Reference number</label>
+          <input id="tdRef" maxlength="80" ${dis} value="${esc(t?.ref||"")}" placeholder="NIT / bid / GeM number"></div>
+        <div class="field"><label>Status</label><select id="tdMStatus" ${dis}>
+          ${Object.entries(T_STATUS).map(([k,v])=>`<option value="${k}" ${(t?.status||"preparing")===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Last date of submission</label><input type="date" id="tdSubmit" ${dis} value="${esc(t?.submit||"")}">
+          <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Anything still being prepared inside 7 days shows on the Tenders tab badge.</div></div>
+        <div class="field"><label>Opening date</label><input type="date" id="tdOpen" ${dis} value="${esc(t?.opening||"")}"></div>
+      </div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Estimated value (₹)</label>
+          <input type="number" min="0" step="1" id="tdValue" ${dis} value="${t?.value??""}" placeholder="optional"></div>
+        <div class="field"><label>Owner</label><select id="tdOwner" ${dis}>
+          <option value="">— nobody yet —</option>
+          ${liveUsers().sort((a,b)=>a.name.localeCompare(b.name)).map(u=>`<option value="${u.id}" ${t?.owner===u.id?"selected":""}>${esc(u.name)} · ${esc(titleOf(u))}</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="tdNotes" rows="2" ${dis} placeholder="Scope, conditions, what is outstanding">${esc(t?.notes||"")}</textarea></div>
+      <div class="field"><label>Papers</label><div id="tdFiles">${fileGroup("tender")}${fileGroup("work_order")}</div>
+        <input type="file" id="tdFile" multiple style="display:none"></div>
+      <div id="tdEmd">${emdHTML()}</div>
+      <div class="m-actions">
+        ${canDelete?`<button type="button" class="btn" id="tdDelete" style="color:var(--critical)">Delete tender</button>`:""}
+        <div class="grow"></div>
+        <button type="button" class="btn" id="tdCancel">${wr?"Cancel":"Close"}</button>
+        ${wr?`<button class="btn primary" type="submit">${t?"Save changes":"File this tender"}</button>`:""}</div>
+    </form></div>`);
+
+  let dropKind = "tender";
+  function wireFiles(){
+    $("#tdFiles").innerHTML = fileGroup("tender") + fileGroup("work_order");
+    document.querySelectorAll("[data-tdopen],[data-tdget]").forEach(el=>el.addEventListener("click",()=>{
+      const f = TFILES.find(x=>x.id===(el.dataset.tdopen||el.dataset.tdget)); if(!f) return;
+      const w = window.open("", "_blank");
+      openTenderFile(f, !!el.dataset.tdget, w);
+    }));
+    document.querySelectorAll("[data-tddel]").forEach(el=>el.addEventListener("click", async ()=>{
+      const f = TFILES.find(x=>x.id===el.dataset.tddel); if(!f) return;
+      el.disabled=true; if(await deleteTenderFile(f)){ toast("File removed"); wireFiles(); } else el.disabled=false;
+    }));
+    document.querySelectorAll("[data-tddrop]").forEach(el=>el.addEventListener("click",()=>{
+      const [k,i] = el.dataset.tddrop.split(":"); pending[k].splice(Number(i),1); wireFiles();
+    }));
+    document.querySelectorAll("[data-drop]").forEach(el=>{
+      el.addEventListener("click",()=>{ dropKind = el.dataset.drop; $("#tdFile").click(); });
+      ["dragenter","dragover"].forEach(ev=>el.addEventListener(ev,e=>{ e.preventDefault(); el.classList.add("hot"); }));
+      ["dragleave","drop"].forEach(ev=>el.addEventListener(ev,e=>{ e.preventDefault(); el.classList.remove("hot"); }));
+      el.addEventListener("drop",e=>{ dropKind = el.dataset.drop; take(e.dataTransfer&&e.dataTransfer.files); });
+    });
+  }
+  function take(list){
+    [...(list||[])].forEach(f=>{
+      if(f.size > DOC_MAX){ toast(`"${f.name}" is ${fmtBytes(f.size)} — the limit is 25 MB.`); return; }
+      pending[dropKind].push(f);
+    });
+    wireFiles();
+  }
+  $("#tdFile").addEventListener("change",e=>{ take(e.target.files); e.target.value=""; });
+  wireFiles();
+
+  function wireEmd(){
+    if(!seeEmd) return;
+    $("#tdEmd").innerHTML = emdHTML();
+    document.querySelectorAll(".emdf").forEach(el=>el.addEventListener("input",()=>{
+      const r = emdRows[Number(el.dataset.i)]; if(!r) return;
+      const f = el.dataset.f;
+      r[f] = f==="amount" ? Number(el.value||0) : el.value;
+      r._dirty = true;
+      if(f==="status" || f==="amount") wireEmd();      // the header total follows along
+    }));
+    document.querySelectorAll("[data-emddel]").forEach(el=>el.addEventListener("click",()=>{
+      const r = emdRows[Number(el.dataset.emddel)];
+      if(r && r.id && !r._new) emdGone.push(r.id);
+      emdRows.splice(Number(el.dataset.emddel),1); wireEmd();
+    }));
+    const add = $("#emdAdd");
+    if(add) add.addEventListener("click",()=>{
+      emdRows.push({_new:true, site:$("#tdSite")?$("#tdSite").value.trim():"", amount:0,
+        mode:"online", status:"not_received", ref:"", receivedOn:"", paidOn:"", note:""});
+      wireEmd();
+    });
+  }
+  wireEmd();
+
+  $("#tdCancel").addEventListener("click",closeModal);
+  const del = $("#tdDelete");
+  if(del) del.addEventListener("click", async ()=>{
+    if(!confirm("Delete this tender, its papers and its EMD lines? This cannot be undone.")) return;
+    del.disabled = true;
+    const files = tFilesOf(t.id);
+    if(await guard(()=>DB.del("dat_tenders", t.id).then(()=>true)) === null){ del.disabled=false; return; }
+    if(files.length) await sb.storage.from(TENDER_BUCKET).remove(files.map(f=>f.path)).catch(()=>{});
+    TFILES = TFILES.filter(f=>f.tender!==t.id);
+    EMDS   = EMDS.filter(e=>e.tender!==t.id);
+    const i = TENDERS.findIndex(x=>x.id===t.id); if(i>-1) TENDERS.splice(i,1);
+    toast("Tender deleted"); closeModal(); render();
+  });
+
+  const form = $("#tenderForm");
+  form.addEventListener("submit", async e=>{
+    e.preventDefault();
+    if(!wr) return;
+    const title = $("#tdTitle").value.trim(); if(!title) return;
+    const vals = {title, site_name:$("#tdSite").value.trim(), authority:$("#tdAuth").value.trim(),
+      ref_no:$("#tdRef").value.trim(), status:$("#tdMStatus").value,
+      submit_date:$("#tdSubmit").value || null, opening_date:$("#tdOpen").value || null,
+      value_amount:$("#tdValue").value===""?null:Number($("#tdValue").value),
+      owner:$("#tdOwner").value || null, notes:$("#tdNotes").value.trim()};
+    const btn = form.querySelector("button[type=submit]"); btn.disabled=true; btn.textContent="Saving…";
+    let row;
+    if(t) row = await guard(()=>DB.upd("dat_tenders", t.id, vals));
+    else  row = await guard(()=>DB.ins("dat_tenders", {...vals, created_by:me.id}));
+    if(!row){ btn.disabled=false; btn.textContent = t?"Save changes":"File this tender"; return; }
+    const saved = mapTender(row);
+    if(t) Object.assign(t, saved); else TENDERS.unshift(saved);
+
+    const nPending = pending.tender.length + pending.work_order.length;
+    if(nPending){
+      btn.textContent = `Attaching ${nPending} file${nPending===1?"":"s"}…`;
+      for(const kind of ["tender","work_order"])
+        for(const f of pending[kind]) await uploadTenderFile(saved.id, kind, f);
+      pending = {tender:[], work_order:[]};
+    }
+
+    if(wrEmd){
+      btn.textContent = "Saving EMD…";
+      for(const gid of emdGone){
+        if(await guard(()=>DB.del("dat_tender_emd", gid).then(()=>true)) !== null){
+          const i = EMDS.findIndex(x=>x.id===gid); if(i>-1) EMDS.splice(i,1);
+        }
+      }
+      emdGone = [];
+      for(const r of emdRows){
+        const body = {tender_id:saved.id, site_name:r.site||"", amount:Number(r.amount)||0,
+          mode:r.mode||"online", status:r.status||"not_received",
+          paid_on:r.paidOn||null, received_on:r.receivedOn||null,
+          ref_no:r.ref||"", note:r.note||""};
+        if(r._new){
+          const er = await guard(()=>DB.ins("dat_tender_emd", {...body, created_by:me.id}));
+          if(er) EMDS.push(mapEmd(er));
+        } else if(r._dirty){
+          const er = await guard(()=>DB.upd("dat_tender_emd", r.id, body));
+          if(er){ const i=EMDS.findIndex(x=>x.id===r.id); if(i>-1) EMDS[i]=mapEmd(er); }
+        }
+      }
+    }
+
+    TENDERS.sort((a,b)=>(a.submit||"9999").localeCompare(b.submit||"9999") || b.ts-a.ts);
+    if(!t) addEvent("move",`filed a tender — ${title}`);
+    toast(t?"Tender updated ✓":"Tender filed ✓");
+    closeModal(); render();
+  });
+}
+
 /* ================= legal repository =================
    A register of legal matters — contracts, cases, notices, licences — each
    with its own fields and its own attached files. Who may read it, add to it
@@ -3253,12 +3721,12 @@ function renderLegal(){
       <input id="lgQ" placeholder="Search title, party, project, reference or note" value="${esc(state.legalQ)}">
       <select id="lgType"><option value="all" ${state.legalType==="all"?"selected":""}>Every type</option>
         ${Object.entries(LEGAL_TYPES).map(([k,v])=>`<option value="${k}" ${state.legalType===k?"selected":""}>${esc(v)}</option>`).join("")}</select>
-      <select id="lgStatus">
+      <select id="lgStatus" style="grid-column:${canEdit(me,"legal")?"auto":"span 2"}">
         <option value="open"   ${state.legalStatus==="open"?"selected":""}>Open matters</option>
         <option value="alerts" ${state.legalStatus==="alerts"?"selected":""}>Needs attention (30 days)</option>
         <option value="all"    ${state.legalStatus==="all"?"selected":""}>Everything, closed included</option>
         ${Object.entries(LEGAL_STATUS).map(([k,v])=>`<option value="${k}" ${state.legalStatus===k?"selected":""}>${esc(v)} only</option>`).join("")}</select>
-      <button class="btn primary" id="lgNew">＋ New matter</button>
+      ${canEdit(me,"legal")?`<button class="btn primary" id="lgNew">＋ New matter</button>`:""}
     </div>
   </div>
 
@@ -3286,7 +3754,7 @@ function renderLegal(){
     const nq=$("#lgQ"); nq.focus(); try{ nq.setSelectionRange(at,at); }catch(_){} });
   $("#lgType").addEventListener("change",e=>{ state.legalType=e.target.value; renderLegal(); });
   $("#lgStatus").addEventListener("change",e=>{ state.legalStatus=e.target.value; renderLegal(); });
-  $("#lgNew").addEventListener("click",()=>openLegalModal(null));
+  const lgn=$("#lgNew"); if(lgn) lgn.addEventListener("click",()=>openLegalModal(null));
   document.querySelectorAll("[data-legal]").forEach(tr=>tr.addEventListener("click",()=>openLegalModal(tr.dataset.legal)));
 }
 
@@ -4454,6 +4922,7 @@ function openRoleModal(roleId, preset={}){
   if(!isAdmin(me)){ toast("Only an Admin can create job roles."); return; }
   const r = roleId ? ROLES.find(x=>x.id===roleId) : null;
   const pipes = new Set(r?.pipes || []);
+  const acc   = new Set(r?.access || []);
   modal(`<div class="modal wide">
     <h3>${r?"Edit job role":"New job role"}</h3>
     <div class="msub">${r?"Everyone holding this role picks up these settings.":"A job role is the designation people are hired into — Tender Executive, Legal Executive, Accounts, HR, anything."}
@@ -4477,10 +4946,21 @@ function openRoleModal(roleId, preset={}){
         <div class="check-list"><label>
           <input type="checkbox" id="jPrivate" ${r?.privatePipes?"checked":""}> Boards stay private to each person</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Normally everyone in a department can see that department's pipelines. Tick this and they can't — two people holding this role won't see each other's boards. Their manager, VP and the CEO still do, and so do their own reports.</div></div>`:""}
-      ${LEADERSHIP_READY?`<div class="field"><label>Leadership access</label>
+      ${ACCESS_READY?`<div class="field"><label>What this role can see</label>
+        <div style="font-size:11.5px;color:var(--muted);margin:-2px 0 7px">Tick a screen to let anyone holding this role open it. Tick <b>Can edit</b> as well and they may add and change what is on it; leave it clear and they can only read. The CEO and the VPs hold all of these already, and the Legal and Tender departments carry their own.</div>
+        <div style="border:1px solid var(--border);border-radius:11px;overflow:hidden">
+          ${ACCESS_MODULES.map((m,i)=>`<div style="display:flex;align-items:flex-start;gap:12px;padding:9px 11px;${i?"border-top:1px solid var(--grid)":""}">
+            <label style="display:flex;align-items:flex-start;gap:9px;flex:1;min-width:0;font-size:13.5px;cursor:pointer">
+              <input type="checkbox" class="jAcc" value="${m.key}" ${(acc.has(m.key)||acc.has(m.key+":edit"))?"checked":""} style="margin-top:3px;flex:none">
+              <span style="min-width:0">${esc(m.label)}<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:1px">${esc(m.hint)}</span></span></label>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);font-weight:600;white-space:nowrap;cursor:pointer;padding-top:2px">
+              <input type="checkbox" class="jAccEd" value="${m.key}" ${acc.has(m.key+":edit")?"checked":""}> Can edit</label>
+          </div>`).join("")}
+        </div></div>`
+      : LEADERSHIP_READY?`<div class="field"><label>Leadership access</label>
         <div class="check-list"><label>
           <input type="checkbox" id="jLead" ${r?.leadership?"checked":""}> Treat this role as leadership</label></div>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">For designations that sit with leadership without being a VP — AVP, DGM. They see everyone's documents and the Documents panel on the Dashboard. It changes what they can <b>see</b> and nothing else: no extra control over anyone's work, no account management, no org chart. The CEO and the VPs already have this.</div></div>`:""}
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">For designations that sit with leadership without being a VP — AVP, DGM. They see everyone's documents and the Documents panel on the Dashboard. Run <code>TRACKER-UPDATE-10.sql</code> to turn this one switch into the full list.</div></div>`:""}
       ${r?`<div class="field"><div class="check-list"><label>
         <input type="checkbox" id="jActive" ${r.active?"checked":""}> Role is active</label></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Retiring a role keeps the ${USERS.filter(x=>x.role===r.id).length} people already on it — it just stops appearing when creating new accounts.</div></div>`:""}
@@ -4489,6 +4969,13 @@ function openRoleModal(roleId, preset={}){
         <button class="btn primary" type="submit">${r?"Save changes":"Create job role"}</button></div>
     </form></div>`);
   $("#jCancel").addEventListener("click",closeModal);
+  /* "Can edit" without "can see" is meaningless, so the two stay in step. */
+  document.querySelectorAll(".jAccEd").forEach(ed=>ed.addEventListener("change",()=>{
+    if(ed.checked){ const v=document.querySelector(`.jAcc[value="${ed.value}"]`); if(v) v.checked=true; }
+  }));
+  document.querySelectorAll(".jAcc").forEach(v=>v.addEventListener("change",()=>{
+    if(!v.checked){ const ed=document.querySelector(`.jAccEd[value="${v.value}"]`); if(ed) ed.checked=false; }
+  }));
   $("#roleForm").addEventListener("submit", async e=>{
     e.preventDefault();
     const name=$("#jName").value.trim(); if(!name) return;
@@ -4496,7 +4983,13 @@ function openRoleModal(roleId, preset={}){
     const sel=[...document.querySelectorAll(".jPipe:checked")].map(c=>c.value);
     const vals={name, dept:$("#jDept").value, level:$("#jLevel").value, pipes:sel};
     if(PRIVPIPES_READY) vals.private_pipes = !!($("#jPrivate") && $("#jPrivate").checked);
-    if(LEADERSHIP_READY) vals.leadership = !!($("#jLead") && $("#jLead").checked);
+    if(ACCESS_READY){
+      const acl = [];
+      document.querySelectorAll(".jAccEd:checked").forEach(c=>acl.push(c.value, c.value+":edit"));
+      document.querySelectorAll(".jAcc:checked").forEach(c=>{ if(!acl.includes(c.value)) acl.push(c.value); });
+      vals.access = acl;
+      if(LEADERSHIP_READY) vals.leadership = acl.includes("docs_all");
+    } else if(LEADERSHIP_READY) vals.leadership = !!($("#jLead") && $("#jLead").checked);
     if(r){
       const saved = await guard(()=>DB.upd("dat_job_roles", r.id, {...vals, active:$("#jActive")?$("#jActive").checked:true}));
       if(!saved) return;
@@ -4693,6 +5186,7 @@ $("#quickAdd").addEventListener("click",()=>{
   if(state.view==="kpis"){ if(teamPeople().length) openKpiModal(null); else toast("Nobody reports to you yet."); }
   else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
   else if(state.view==="legal"){ openLegalModal(null); }
+  else if(state.view==="tenders"){ openTenderModal(null); }
   else openTaskModal(null,{});
 });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });
