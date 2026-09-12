@@ -89,10 +89,14 @@ nav{display:flex; flex-direction:column; gap:2px}
 .nav-btn svg{width:19px; height:19px; flex:none}
 .nav-btn:hover{background:var(--surface-2); color:var(--ink)}
 .nav-btn.active{background:var(--accent-soft); color:var(--accent-strong)}
-.nav-btn .cnt,.pipe-tab .cnt{margin-left:auto; font-size:10.5px; font-weight:750; background:var(--critical);
+.nav-btn .cnt,.pipe-tab .cnt{font-size:10.5px; font-weight:750; background:var(--critical);
   color:#fff; border-radius:99px; min-width:18px; height:18px; padding:0 5px; display:inline-flex;
   align-items:center; justify-content:center}
 .pipe-tab .cnt{margin-left:2px}
+/* red says "this needs you"; accent says "this changed since you last looked" */
+.nav-btn .badges{margin-left:auto; display:inline-flex; align-items:center; gap:5px; flex:none}
+.nav-btn .cnt.new{background:var(--accent)}
+.nav-btn.active .cnt.new{background:var(--accent-strong)}
 .side-foot{margin-top:auto; border-top:1px solid var(--border); padding-top:10px}
 .me-card{display:flex; align-items:center; gap:10px; padding:8px; border-radius:12px; width:100%; text-align:left}
 .me-card:hover{background:var(--surface-2)}
@@ -1435,6 +1439,84 @@ function wireNotifBridge(){
   });
 }
 
+/* ================= what is new since you last looked =================
+   Every screen remembers the moment this person last had it open, and the
+   sidebar shows how many things have appeared or changed there since. The
+   moment is kept in this browser, not the database: it is a reading position,
+   it is different on the office PC and the phone, and it is nobody else's
+   business. Opening a screen marks it read straight away, so your own work
+   never shows up as news to you. A browser that has never run this before
+   starts from "now" — nobody wants to sign in to 400 unread documents. */
+const FRESH_VIEWS = ["pipelines","kpis","documents","legal","tenders"];
+let SEEN = {}, SEEN_FOR = null;
+const seenKey = () => "dat-seen-views-" + (state.me ? state.me.id : "anon");
+function ensureSeen(){
+  if(!state.me || SEEN_FOR === state.me.id) return;
+  SEEN_FOR = state.me.id;
+  let raw = null;
+  try{ raw = JSON.parse(localStorage.getItem(seenKey()) || "null"); }catch(_){ raw = null; }
+  if(raw && typeof raw === "object"){ SEEN = raw; }
+  else { const now = Date.now(); SEEN = {}; FRESH_VIEWS.forEach(v=>SEEN[v]=now); saveSeen(); }
+}
+function saveSeen(){ try{ localStorage.setItem(seenKey(), JSON.stringify(SEEN)); }catch(_){} }
+/* The newest thing on a screen, whoever put it there. Timestamps come from the
+   database clock and this runs on the browser clock; if the two disagree by a
+   few seconds a brand-new row can look like it is in the future, and a badge
+   that will not clear is worse than no badge. Marking a screen read therefore
+   moves the marker past the newest row on it, not merely to "now". */
+function latestTs(view){
+  let x = 0; const M = t => { if(t && t > x) x = t; };
+  if(view === "pipelines") TASKS.forEach(t=>{ M(t.createdAt); M(t.closedAt); });
+  if(view === "kpis")      KTARGETS.forEach(k=>M(k.updatedAt));
+  if(view === "documents") DOCS.forEach(d=>M(d.ts));
+  if(view === "legal"){ LEGAL.forEach(m=>{ M(m.ts); M(m.updatedAt); }); LEGAL_FILES.forEach(f=>M(f.ts)); }
+  if(view === "tenders"){ TENDERS.forEach(t=>{ M(t.ts); M(t.updatedAt); });
+    TFILES.forEach(f=>M(f.ts)); EMDS.forEach(e=>M(e.ts)); }
+  return x;
+}
+/* markViewSeen, not markSeen — the groups module already owns that name, and a
+   second function declaration of it would quietly replace this one. */
+function markViewSeen(view){
+  if(!FRESH_VIEWS.includes(view)) return;
+  SEEN[view] = Math.max(Date.now(), latestTs(view)); saveSeen();
+}
+const seenAt = v => Number(SEEN[v]) || 0;
+const after  = (ts, t) => !!ts && ts > t;
+
+/* Counts only what SOMEBODY ELSE did — a document you filed yourself is not
+   news. Each item counts once however many ways it changed. */
+function freshCount(view){
+  const me = state.me; if(!me) return 0;
+  const t = seenAt(view);
+  if(!t) return 0;
+  if(view === "pipelines")
+    return visibleTasks(me).filter(x =>
+      (after(x.createdAt, t) && x.createdBy !== me.id) ||
+      (after(x.closedAt,  t) && x.assignee  !== me.id)).length;
+  if(view === "kpis"){
+    const mine = new Set(visibleUserIds(me));
+    return KTARGETS.filter(k => mine.has(k.user) && k.setBy !== me.id && after(k.updatedAt, t)).length;
+  }
+  if(view === "documents"){
+    const ids = new Set(docVisibleUserIds(me));
+    return DOCS.filter(d => ids.has(d.user) && d.user !== me.id && after(d.ts, t)).length;
+  }
+  if(view === "legal"){
+    const hit = new Set();
+    LEGAL.forEach(m=>{ if(m.createdBy !== me.id && (after(m.ts,t) || after(m.updatedAt,t))) hit.add(m.id); });
+    LEGAL_FILES.forEach(f=>{ if(f.by !== me.id && after(f.ts,t)) hit.add(f.legal); });
+    return hit.size;
+  }
+  if(view === "tenders"){
+    const hit = new Set();
+    TENDERS.forEach(x=>{ if(x.createdBy !== me.id && (after(x.ts,t) || after(x.updatedAt,t))) hit.add(x.id); });
+    TFILES.forEach(f=>{ if(f.by !== me.id && after(f.ts,t)) hit.add(f.tender); });
+    EMDS.forEach(e=>{ if(e.createdBy !== me.id && after(e.ts,t)) hit.add(e.tender); });
+    return hit.size;
+  }
+  return 0;
+}
+
 /* ================= shell ================= */
 const NAVS = [
   {id:"dashboard", label:"Dashboard", ic:IC.dash},
@@ -1465,6 +1547,7 @@ function navsFor(me){
   if(isAdmin(me)) n.push({id:"admin", label:"Admin", ic:IC.admin, count:pendingReqs().length});
   else if(canRequest(me)) n.push({id:"requests", label:"Requests", ic:IC.inbox,
     count:REQS.filter(r=>r.by===me.id&&r.status==="pending").length});
+  n.forEach(x=>{ x.fresh = freshCount(x.id); });
   return n;
 }
 
@@ -1613,9 +1696,17 @@ function applyTheme(){ document.documentElement.setAttribute("data-theme", state
 
 function render(){
   const me = state.me; if(!me) return;
+  ensureSeen();
+  /* Marked read here, before the sidebar is built, so the screen you have just
+     clicked into loses its badge at once rather than one render later. */
+  markViewSeen(state.view);
   const navs = navsFor(me);
-  if(!navs.find(n=>n.id===state.view)) state.view="dashboard";
-  $("#nav").innerHTML = navs.map(n=>`<button class="nav-btn ${state.view===n.id?"active":""}" data-nav="${n.id}">${n.ic}<span>${n.label}</span>${n.count?`<span class="cnt">${n.count}</span>`:""}</button>`).join("");
+  if(!navs.find(n=>n.id===state.view)){ state.view="dashboard"; markViewSeen(state.view); }
+  $("#nav").innerHTML = navs.map(n=>{
+    const pills = `${n.count?`<span class="cnt" title="${n.count} need${n.count===1?"s":""} your attention">${n.count>99?"99+":n.count}</span>`:""}${
+      n.fresh?`<span class="cnt new" title="${n.fresh} update${n.fresh===1?"":"s"} since you last opened this">${n.fresh>99?"99+":n.fresh}</span>`:""}`;
+    return `<button class="nav-btn ${state.view===n.id?"active":""}" data-nav="${n.id}">${n.ic}<span>${esc(n.label)}</span>${pills?`<span class="badges">${pills}</span>`:""}</button>`;
+  }).join("");
   $("#meCard").innerHTML = `${avatar(me,"md")}<div class="mcol"><div class="nm">${esc(me.name)}</div><div class="rl">${esc(titleOf(me))}</div></div>`;
   $("#viewTitle").textContent = VIEW_TITLES[state.view];
   $("#viewDate").textContent = state.view==="admin" ? "Job roles, accounts and requests"
