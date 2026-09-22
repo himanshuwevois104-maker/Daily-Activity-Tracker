@@ -726,11 +726,23 @@ const DB = {
   async upd(table, id, patch){ const {data,error}=await sb.from(table).update(patch).eq("id",id).select().single(); if(error) throw error; return data; },
   async del(table, id){ const {error}=await sb.from(table).delete().eq("id",id); if(error) throw error; },
 };
+/* A request that never reached Supabase at all - the browser's own network
+   error - is not the same as the database refusing it, and should not read
+   like one. Deliberately not auto-retried here: an update or delete is safe
+   to repeat, but an insert is not, and guard() covers all three. */
+function isNetworkError(e){
+  const m = (e && (e.message||e.error_description)) || String(e||"");
+  return /failed to fetch|networkerror|network request failed|load failed|network connection was lost/i.test(m);
+}
 /* Any DB call that fails surfaces to the user instead of silently doing nothing. */
 async function guard(fn, okMsg){
   try { const r = await fn(); if(okMsg) toast(okMsg); return r; }
   catch(e){
     console.error(e);
+    if(isNetworkError(e)){
+      toast("Could not reach the server \u2014 check your connection and try again.");
+      return null;
+    }
     const m = (e && (e.message||e.error_description)) || "Something went wrong";
     toast(/row-level security|permission/i.test(m) ? "You do not have permission to do that." : m);
     return null;
@@ -832,6 +844,16 @@ async function loadLegal(){
   catch(e){ LEGAL_READY = false; console.warn("Legal repository unavailable:", e.message||e); return [[],[]]; }
 }
 
+/* Where this person has read up to, one row per screen (TRACKER-UPDATE-11.sql).
+   Row-level security means the query can only ever return their own rows. If
+   the migration has not been run the table is missing — that is not an error
+   here, it just sends the app back to keeping the marks in this browser. */
+let SEEN_DB = true;
+async function loadSeenMarks(){
+  try{ const rows = await DB.sel("dat_seen"); SEEN_DB = true; return rows; }
+  catch(e){ SEEN_DB = false; console.warn("Read positions unavailable:", e.message||e); return null; }
+}
+
 /* The tender register arrives with TRACKER-UPDATE-10.sql. EMD is fetched on
    its own and allowed to come back empty: for somebody who may see tenders but
    not EMD — an AVP, a DGM — an empty list is the database doing its job, not a
@@ -866,7 +888,7 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg,td] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg,td,sn] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
@@ -874,6 +896,7 @@ async function loadAll(){
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
     DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(), loadLegal(), loadTenders(),
+    loadSeenMarks(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -899,6 +922,11 @@ async function loadAll(){
   TENDERS = td[0].map(mapTender).sort((a,b)=>(a.submit||"9999").localeCompare(b.submit||"9999") || b.ts-a.ts);
   TFILES  = td[1].map(mapTFile).sort((a,b)=>b.ts-a.ts);
   EMDS    = td[2].map(mapEmd).sort((a,b)=>a.site.localeCompare(b.site) || a.ts-b.ts);
+  /* Merged, never replaced: a reload can land in the second between opening a
+     screen and the debounced write reaching the database, and a read position
+     must never go backwards. The later of the two is the true one. */
+  if(sn){ const fromDb={}; sn.forEach(r2=>{ fromDb[r2.view] = new Date(r2.seen_at).getTime(); });
+          mergeSeen(fromDb); }
 }
 async function addEvent(type,text){
   try{ const row = await DB.ins("dat_events",{user_id:state.me.id, type, text});
@@ -1450,15 +1478,57 @@ function wireNotifBridge(){
 const FRESH_VIEWS = ["pipelines","kpis","documents","legal","tenders"];
 let SEEN = {}, SEEN_FOR = null;
 const seenKey = () => "dat-seen-views-" + (state.me ? state.me.id : "anon");
+
+/* The marks live in dat_seen, so opening Documents on the phone clears the
+   count on the desktop too. localStorage stays on as a same-instant cache —
+   it paints the badges before the first query comes back, and it is the whole
+   story on a project where TRACKER-UPDATE-11.sql has not been run. */
+function saveSeen(){ try{ localStorage.setItem(seenKey(), JSON.stringify(SEEN)); }catch(_){} }
+/* Take the later of what we hold and what arrived — from the database, or from
+   this browser's cache. A mark only ever moves forward. */
+function mergeSeen(other){
+  if(!other) return;
+  Object.keys(other).forEach(v=>{
+    const t = Number(other[v]) || 0;
+    if(t > (Number(SEEN[v]) || 0)) SEEN[v] = t;
+  });
+}
 function ensureSeen(){
   if(!state.me || SEEN_FOR === state.me.id) return;
   SEEN_FOR = state.me.id;
   let raw = null;
   try{ raw = JSON.parse(localStorage.getItem(seenKey()) || "null"); }catch(_){ raw = null; }
-  if(raw && typeof raw === "object"){ SEEN = raw; }
-  else { const now = Date.now(); SEEN = {}; FRESH_VIEWS.forEach(v=>SEEN[v]=now); saveSeen(); }
+  if(raw && typeof raw === "object") mergeSeen(raw);
+  if(!Object.keys(SEEN).length){
+    /* first time on this account anywhere — start from now. Nobody wants to
+       sign in to four hundred unread documents. */
+    const now = Date.now();
+    FRESH_VIEWS.forEach(v=>{ SEEN[v] = now; pushSeen(v); });
+  }
+  saveSeen();
 }
-function saveSeen(){ try{ localStorage.setItem(seenKey(), JSON.stringify(SEEN)); }catch(_){} }
+
+/* Rendering happens far more often than reading does — a realtime change
+   repaints the screen you are already sitting on — so the write is debounced
+   and only the last value of a burst reaches the database. */
+const seenTimers = {};
+function pushSeen(view){
+  if(!SEEN_DB || !state.me) return;
+  clearTimeout(seenTimers[view]);
+  seenTimers[view] = setTimeout(async ()=>{
+    const at = SEEN[view]; if(!at) return;
+    try{
+      const {error} = await sb.from("dat_seen")
+        .upsert({user_id:state.me.id, view, seen_at:new Date(at).toISOString()},
+                {onConflict:"user_id,view"});
+      if(error) throw error;
+    }catch(e){
+      /* a missing table or a refused write must never cost anybody their work,
+         so the marks quietly go back to being this browser's business */
+      SEEN_DB = false; console.warn("Could not save the read position:", e.message||e);
+    }
+  }, 1200);
+}
 /* The newest thing on a screen, whoever put it there. Timestamps come from the
    database clock and this runs on the browser clock; if the two disagree by a
    few seconds a brand-new row can look like it is in the future, and a badge
@@ -1478,7 +1548,9 @@ function latestTs(view){
    second function declaration of it would quietly replace this one. */
 function markViewSeen(view){
   if(!FRESH_VIEWS.includes(view)) return;
-  SEEN[view] = Math.max(Date.now(), latestTs(view)); saveSeen();
+  const at = Math.max(Date.now(), latestTs(view));
+  if(SEEN[view] === at) return;
+  SEEN[view] = at; saveSeen(); pushSeen(view);
 }
 const seenAt = v => Number(SEEN[v]) || 0;
 const after  = (ts, t) => !!ts && ts > t;
@@ -1640,10 +1712,30 @@ async function afterLogin(){
   $("#login").innerHTML = `<div class="login-card" style="text-align:center;color:var(--ink2)">Loading your workspace...</div>`;
   const {data:{user}} = await sb.auth.getUser();
   try { await loadAll(); }
-  catch(e){ console.error(e); authShell("Could not load your data", "The database rejected the request.",
-      `<div style="font-size:13.5px;color:var(--critical)">${esc(e.message||String(e))}</div>
-       <button class="btn" id="soBtn" style="justify-content:center;margin-top:16px">Sign out</button>`);
-    $("#soBtn").addEventListener("click", logout); return; }
+  catch(e){
+    console.error(e);
+    /* loadAll() is all reads, so a network blip - common right after a laptop
+       wakes up or Wi-Fi reconnects - is safe to quietly retry once before
+       showing anyone an error screen. */
+    if(isNetworkError(e)){
+      await new Promise(r=>setTimeout(r,1500));
+      try{ await loadAll(); }
+      catch(e2){
+        console.error(e2);
+        authShell("Could not connect", "Your connection dropped before the workspace could load.",
+          `<div style="font-size:13.5px;color:var(--ink2)">Check your internet connection, then
+            <a href="#" id="retryLoad" style="color:var(--accent)">try again</a>.</div>
+           <button class="btn" id="soBtn" style="justify-content:center;margin-top:16px">Sign out</button>`);
+        $("#retryLoad").addEventListener("click", ev=>{ ev.preventDefault(); location.reload(); });
+        $("#soBtn").addEventListener("click", logout); return;
+      }
+    } else {
+      authShell("Could not load your data", "The database rejected the request.",
+        `<div style="font-size:13.5px;color:var(--critical)">${esc(e.message||String(e))}</div>
+         <button class="btn" id="soBtn" style="justify-content:center;margin-top:16px">Sign out</button>`);
+      $("#soBtn").addEventListener("click", logout); return;
+    }
+  }
   state.me = USERS.find(u=>u.id===user.id);
   if(!state.me || !state.me.active){ renderNoProfile(user.email); return; }
   state.view="dashboard"; state.logWho=null; state.docWho=null; state.adminTab="accounts";
