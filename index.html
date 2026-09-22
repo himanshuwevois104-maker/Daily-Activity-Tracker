@@ -790,6 +790,19 @@ const mapKpi  = k => ({id:k.id, name:k.name, unit:k.unit||"", detail:k.detail||"
 const mapKTgt = t => ({id:t.id, kpi:t.kpi_id, user:t.user_id, period:(t.period||"").slice(0,10),
   target:Number(t.target)||0, achieved:Number(t.achieved)||0, note:t.note||"",
   setBy:t.set_by, updatedAt:t.updated_at?new Date(t.updated_at).getTime():null});
+const mapKraCycle = c => ({id:c.id, user:c.user_id, type:c.period_type, label:c.period_label,
+  start:(c.period_start||"").slice(0,10), end:(c.period_end||"").slice(0,10),
+  reviewer:c.reviewer, finalized:!!c.finalized,
+  finalizedAt:c.finalized_at?new Date(c.finalized_at).getTime():null});
+const mapKra = k => ({id:k.id, cycle:k.cycle_id, seq:k.seq||0, name:k.name, weight:Number(k.weight)||0});
+const mapKraItem = i => ({id:i.id, kra:i.kra_id, seq:i.seq||0, measure:i.measure,
+  itemWeight: i.item_weight==null?null:Number(i.item_weight), standard:i.standard||"",
+  targetValue: i.target_value==null?null:Number(i.target_value),
+  targetUnit:i.target_unit||"", cadence:i.target_cadence||"",
+  actualValue: i.actual_value==null?null:Number(i.actual_value), actualNote:i.actual_note||"",
+  actualBy:i.actual_updated_by, actualAt:i.actual_updated_at?new Date(i.actual_updated_at).getTime():null});
+const mapKraScore = s => ({item:s.item_id, score:s.score==null?null:Number(s.score),
+  note:s.score_note||"", by:s.scored_by, at:s.scored_at?new Date(s.scored_at).getTime():null});
 const mapGroup = g => ({id:g.id, name:g.name, purpose:g.purpose||"", color:g.color||1,
   active:g.active!==false, createdBy:g.created_by});
 const mapGMem = m => ({group:m.group_id, user:m.user_id, until:m.until||null, addedBy:m.added_by});
@@ -876,6 +889,18 @@ async function loadKpis(){
        KPIS_READY = true; return [k,t]; }
   catch(e){ KPIS_READY = false; console.warn("KPIs unavailable:", e.message||e); return [[],[]]; }
 }
+
+/* KRA / appraisal reviews - a different shape from KPIs (weighted KRAs, a
+   qualitative standard, a 1-5 score) - arrive with TRACKER-UPDATE-12.sql. */
+let KRA_CYCLES = [], KRAS = [], KRA_ITEMS = [], KRA_SCORES = [];
+let KRA_READY = true;
+async function loadKra(){
+  try{
+    const [c,k,i,s] = await Promise.all([DB.sel("dat_kra_cycles"), DB.sel("dat_kras"),
+      DB.sel("dat_kra_items"), DB.sel("dat_kra_scores")]);
+    KRA_READY = true; return [c,k,i,s];
+  }catch(e){ KRA_READY = false; console.warn("KRA reviews unavailable:", e.message||e); return [[],[],[],[]]; }
+}
 async function loadGroups(){
   try{
     const [g,m,msg] = await Promise.all([
@@ -888,7 +913,7 @@ async function loadGroups(){
 }
 
 async function loadAll(){
-  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg,td,sn] = await Promise.all([
+  const [d,r,p,pi,t,c,l,q,e,dc,gr,pz,kp,lg,td,sn,kr] = await Promise.all([
     DB.sel("dat_departments"), DB.sel("dat_job_roles"), DB.sel("dat_profiles"),
     DB.sel("dat_pipelines"), DB.sel("dat_tasks"), DB.sel("dat_log_categories"),
     DB.sel("dat_logs"), DB.sel("dat_requests"),
@@ -896,7 +921,7 @@ async function loadAll(){
       .then(x=>{ if(x.error) throw x.error; return x.data||[]; }),
     loadDocs(), loadGroups(),
     DB.sel("dat_pause_reasons").catch(()=>[]), loadKpis(), loadLegal(), loadTenders(),
-    loadSeenMarks(),
+    loadSeenMarks(), loadKra(),
   ]);
   DEPTS = d.sort((a,b)=>a.name.localeCompare(b.name)).map(x=>x.name);
   ROLES = r.map(mapRole).sort((a,b)=>LEVELS[b.level].rank-LEVELS[a.level].rank || a.name.localeCompare(b.name));
@@ -922,6 +947,10 @@ async function loadAll(){
   TENDERS = td[0].map(mapTender).sort((a,b)=>(a.submit||"9999").localeCompare(b.submit||"9999") || b.ts-a.ts);
   TFILES  = td[1].map(mapTFile).sort((a,b)=>b.ts-a.ts);
   EMDS    = td[2].map(mapEmd).sort((a,b)=>a.site.localeCompare(b.site) || a.ts-b.ts);
+  KRA_CYCLES = kr[0].map(mapKraCycle).sort((a,b)=>b.start.localeCompare(a.start));
+  KRAS       = kr[1].map(mapKra);
+  KRA_ITEMS  = kr[2].map(mapKraItem);
+  KRA_SCORES = kr[3].map(mapKraScore);
   /* Merged, never replaced: a reload can land in the second between opening a
      screen and the debounced write reaching the database, and a read position
      must never go backwards. The later of the two is the true one. */
@@ -2093,6 +2122,39 @@ const canSetAnyKpi = () => teamPeople().length > 0;
 const targetsFor = (uid, month) => KTARGETS.filter(t=>t.user===uid && t.period===(month||state.kpiMonth))
   .sort((a,b)=>(kpiOf(a.kpi)?.name||"").localeCompare(kpiOf(b.kpi)?.name||""));
 const pct = t => t.target>0 ? Math.min(999, Math.round(t.achieved/t.target*100)) : 0;
+/* ---------------- KRA / appraisal review ---------------- */
+const kraCyclesFor = uid => KRA_CYCLES.filter(c=>c.user===uid).sort((a,b)=>b.start.localeCompare(a.start));
+const kraOf = cid => KRAS.filter(k=>k.cycle===cid).sort((a,b)=>a.seq-b.seq || a.name.localeCompare(b.name));
+const kraItemsOf = kid => KRA_ITEMS.filter(i=>i.kra===kid).sort((a,b)=>a.seq-b.seq);
+const kraScoreOf = iid => KRA_SCORES.find(s=>s.item===iid) || null;
+/* same rule as a KPI target: never yourself, only someone you oversee */
+const canReviewFor = uid => canSetKpiFor(uid);
+const PERIOD_TYPE_LABEL = {monthly:"Monthly", quarterly:"Quarterly", annual:"Annual"};
+/* the one number that summarises a finished cycle: KRA weight x item weight,
+   weighted-averaged into a single 1-5. Items with no weight of their own
+   split whatever is left of their KRA's 100% evenly. */
+function kraCycleScore(cid){
+  const kras = kraOf(cid);
+  if(!kras.length) return null;
+  let total = 0, sawAny = false;
+  for(const k of kras){
+    const items = kraItemsOf(k.id);
+    if(!items.length) continue;
+    const named = items.filter(i=>i.itemWeight!=null);
+    const namedSum = named.reduce((a,i)=>a+i.itemWeight,0);
+    const rest = items.filter(i=>i.itemWeight==null);
+    const restEach = rest.length ? Math.max(0,100-namedSum)/rest.length : 0;
+    let kraTotal = 0, kraSaw = false;
+    for(const it of items){
+      const sc = kraScoreOf(it.id);
+      if(!sc || sc.score==null) continue;
+      const w = (it.itemWeight!=null ? it.itemWeight : restEach) / 100;
+      kraTotal += sc.score * w; kraSaw = true;
+    }
+    if(kraSaw){ total += kraTotal * (k.weight/100); sawAny = true; }
+  }
+  return sawAny ? Math.round(total*100)/100 : null;
+}
 /* how far through the month we are - the fair yardstick for "behind" */
 function monthPace(month){
   const start = new Date((month||state.kpiMonth)+"T00:00:00");
@@ -2120,6 +2182,245 @@ async function saveProgress(t, achieved, note){
   if(!saved) return false;
   Object.assign(t, mapKTgt(saved));
   return true;
+}
+
+/* one card, used both on the Review tab (reviewer, full edit) and on the
+   KPIs tab (the person themselves - read the KRA/target, self-report Actual,
+   see the score only once their reviewer finalizes). Which one a given
+   viewer gets follows straight from canReviewFor(uid): a manager viewing a
+   report is always true, a person viewing themselves is always false. */
+function renderKraCard(uid){
+  const isReviewer = canReviewFor(uid);
+  const cycles = kraCyclesFor(uid);
+  if(!state.kraCycle || !cycles.some(c=>c.id===state.kraCycle)) state.kraCycle = cycles[0]?.id || null;
+  const cycle = cycles.find(c=>c.id===state.kraCycle) || null;
+  const kras = cycle ? kraOf(cycle.id) : [];
+  const totalWeight = kras.reduce((a,k)=>a+k.weight,0);
+  const overall = cycle && cycle.finalized ? kraCycleScore(cycle.id) : null;
+
+  return `<div class="card card-pad" data-kra-uid="${uid}" style="margin-top:16px">
+    <div class="card-head" style="align-items:flex-start">
+      <div><h3>Appraisal${cycle?` &middot; ${esc(cycle.label)}`:""}</h3>
+        <div class="sub">${cycle
+          ? `${esc(PERIOD_TYPE_LABEL[cycle.type]||cycle.type)} &middot; ${esc(fmtDate(cycle.start))} &ndash; ${esc(fmtDate(cycle.end))}${
+              cycle.finalized?` &middot; finalized${cycle.finalizedAt?" "+esc(fmtWhen(cycle.finalizedAt)):""}`:" &middot; in progress"}`
+          : (isReviewer?"No review cycle set up yet":"Your reviewer hasn't set up a review cycle yet.")}</div></div>
+      <div class="spacer"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${cycles.length>1?`<select id="kraCycleSel" style="padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12.5px">
+          ${cycles.map(c=>`<option value="${c.id}" ${c.id===state.kraCycle?"selected":""}>${esc(c.label)}</option>`).join("")}</select>`:""}
+        ${isReviewer?`<button class="btn sm" id="kraNewCycle">＋ New cycle</button>`:""}
+      </div>
+    </div>
+    ${!cycle ? "" : `
+    ${overall!=null?`<div class="chip done" style="margin-bottom:10px;font-size:13px">Overall score: <b>${overall.toFixed(2)} / 5</b></div>`
+      :(cycle.finalized?`<div class="sub" style="margin-bottom:10px">Not every item has a score yet.</div>`:"")}
+    ${kras.map(k=>{
+      const items = kraItemsOf(k.id);
+      return `<div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <b style="font-size:13.5px">${esc(k.name)}</b>
+          ${isReviewer?`<input type="number" min="0" max="100" step="0.5" value="${k.weight}" data-krawt="${k.id}"
+             style="width:64px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:12px" title="Weight %">`
+           :`<span class="chip">${fmtNum(k.weight)}%</span>`}
+          <span class="spacer"></span>
+          ${isReviewer?`<button class="mini-btn" data-kraadditem="${k.id}">＋ Item</button>
+            <button class="mini-btn" data-kradelkra="${k.id}">Remove</button>`:""}
+        </div>
+        <div style="overflow-x:auto"><table class="simple">
+          <thead><tr><th>Measure</th><th>Standard</th><th>Target</th><th>Actual</th><th style="width:150px">Score</th>${isReviewer?"<th></th>":""}</tr></thead>
+          <tbody>${items.map(it=>{
+            const sc = kraScoreOf(it.id);
+            const canSeeScore = isReviewer || cycle.finalized;
+            return `<tr>
+              <td style="min-width:160px">${esc(it.measure)}${it.itemWeight!=null?`<div class="sub">${fmtNum(it.itemWeight)}%</div>`:""}</td>
+              <td style="min-width:170px;color:var(--ink2);font-size:12.5px">${esc(it.standard||"")}</td>
+              <td style="min-width:120px;font-size:12.5px">${it.targetValue!=null?`${fmtNum(it.targetValue)}${it.targetUnit?" "+esc(it.targetUnit):""}${it.cadence?` / ${esc(it.cadence)}`:""}`:"—"}</td>
+              <td style="min-width:170px">
+                <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <input data-kraav="${it.id}" type="number" step="0.01" placeholder="value" value="${it.actualValue??""}"
+                  style="width:76px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:12px">
+                <input data-kraan="${it.id}" placeholder="note" value="${esc(it.actualNote)}"
+                  style="width:110px;padding:5px 7px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:12px">
+                <button class="mini-btn" data-krasaveactual="${it.id}">Save</button>
+                </div>
+                ${it.actualAt?`<div class="sub" style="margin-top:2px">by ${esc(U(it.actualBy)?.name||"—")} &middot; ${esc(relDay(iso(new Date(it.actualAt))))}</div>`:""}
+              </td>
+              <td>${!canSeeScore?`<span class="sub">Awaiting review</span>`
+                : isReviewer
+                  ? `<div style="display:flex;gap:4px;flex-wrap:wrap">
+                       <select data-krascore="${it.id}" style="padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:12px">
+                         <option value="">—</option>${[1,2,3,4,5].map(n=>`<option value="${n}" ${sc&&sc.score===n?"selected":""}>${n}</option>`).join("")}</select>
+                       <input data-krascorenote="${it.id}" placeholder="note" value="${esc(sc?.note||"")}"
+                         style="width:90px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);font-size:12px">
+                       <button class="mini-btn" data-krasavescore="${it.id}">Save</button></div>`
+                  : (sc&&sc.score!=null?`<b>${sc.score} / 5</b>${sc.note?`<div class="sub">${esc(sc.note)}</div>`:""}`:`<span class="sub">Not scored</span>`)}
+              </td>
+              ${isReviewer?`<td><button class="mini-btn" data-kradelitem="${it.id}">✕</button></td>`:""}
+            </tr>`;}).join("")}
+          </tbody></table></div>
+      </div>`;}).join("")}
+    ${isReviewer?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn sm" id="kraAddKra">＋ Add KRA</button>
+        <span class="sub">${fmtNum(totalWeight)}% of 100% weighted so far</span>
+        <span class="spacer"></span>
+        <button class="btn sm ${cycle.finalized?"":"primary"}" id="kraFinalize">${cycle.finalized?"Reopen":"Finalize review"}</button>
+      </div>`:""}
+    `}
+  </div>`;
+}
+
+function wireKraCard(){
+  const card = document.querySelector("[data-kra-uid]"); if(!card) return;
+  const uid = card.dataset.kraUid;
+  const sel = $("#kraCycleSel"); if(sel) sel.addEventListener("change", e=>{ state.kraCycle=e.target.value; render(); });
+  const nc = $("#kraNewCycle"); if(nc) nc.addEventListener("click", ()=>openKraCycleModal(uid));
+  const ak = $("#kraAddKra"); if(ak) ak.addEventListener("click", ()=>{ if(state.kraCycle) openKraModal(state.kraCycle); });
+  const fin = $("#kraFinalize"); if(fin) fin.addEventListener("click", ()=>{
+    const c = KRA_CYCLES.find(x=>x.id===state.kraCycle); if(!c) return;
+    if(c.finalized){ toggleKraFinalize(c); return; }
+    const kras = kraOf(c.id);
+    const allScored = kras.length && kras.every(k=>{ const items=kraItemsOf(k.id);
+      return items.length && items.every(it=>{ const s=kraScoreOf(it.id); return s&&s.score!=null; }); });
+    if(!allScored && !confirm("Not every item has a score yet. Finalize anyway?")) return;
+    toggleKraFinalize(c);
+  });
+  document.querySelectorAll("[data-krawt]").forEach(el=>el.addEventListener("change", ()=>{
+    const kra=KRAS.find(k=>k.id===el.dataset.krawt); if(kra) saveKraWeight(kra, parseFloat(el.value)||0); }));
+  document.querySelectorAll("[data-kraadditem]").forEach(el=>el.addEventListener("click", ()=>openKraItemModal(el.dataset.kraadditem)));
+  document.querySelectorAll("[data-kradelkra]").forEach(el=>el.addEventListener("click", ()=>{
+    if(confirm("Remove this KRA and all its measures?")) deleteKra(el.dataset.kradelkra); }));
+  document.querySelectorAll("[data-kradelitem]").forEach(el=>el.addEventListener("click", ()=>{
+    if(confirm("Remove this measure?")) deleteKraItem(el.dataset.kradelitem); }));
+  document.querySelectorAll("[data-krasaveactual]").forEach(el=>el.addEventListener("click", ()=>{
+    const id=el.dataset.krasaveactual; const item=KRA_ITEMS.find(i=>i.id===id); if(!item) return;
+    const vEl=document.querySelector(`[data-kraav="${id}"]`), nEl=document.querySelector(`[data-kraan="${id}"]`);
+    const v=vEl.value.trim();
+    saveKraActual(item, v===""?null:parseFloat(v), nEl.value.trim());
+  }));
+  document.querySelectorAll("[data-krasavescore]").forEach(el=>el.addEventListener("click", ()=>{
+    const id=el.dataset.krasavescore;
+    const sEl=document.querySelector(`[data-krascore="${id}"]`), nEl=document.querySelector(`[data-krascorenote="${id}"]`);
+    saveKraScore(id, sEl.value, nEl.value.trim());
+  }));
+}
+
+async function saveKraWeight(kra, weight){
+  const saved = await guard(()=>DB.upd("dat_kras", kra.id, {weight}));
+  if(saved){ Object.assign(kra, mapKra(saved)); render(); }
+}
+async function saveKraActual(item, value, note){
+  const patch = {actual_value: (value===null||value===undefined||isNaN(value))?null:value, actual_note: note||""};
+  const saved = await guard(()=>DB.upd("dat_kra_items", item.id, patch), "Saved ✓");
+  if(saved){ Object.assign(item, mapKraItem(saved)); render(); }
+}
+async function saveKraScore(itemId, score, note){
+  const row = await guard(()=>sb.from("dat_kra_scores")
+    .upsert({item_id:itemId, score: score===""?null:parseInt(score,10), score_note:note||""})
+    .select().single().then(x=>{ if(x.error) throw x.error; return x.data; }), "Score saved ✓");
+  if(!row) return;
+  const idx = KRA_SCORES.findIndex(s=>s.item===itemId);
+  const mapped = mapKraScore(row);
+  if(idx>=0) KRA_SCORES[idx]=mapped; else KRA_SCORES.push(mapped);
+  render();
+}
+async function toggleKraFinalize(cycle){
+  const saved = await guard(()=>DB.upd("dat_kra_cycles", cycle.id, {finalized: !cycle.finalized}),
+    cycle.finalized?"Reopened":"Finalized ✓");
+  if(saved) Object.assign(cycle, mapKraCycle(saved));
+  render();
+}
+async function deleteKra(kraId){
+  if(await guard(()=>DB.del("dat_kras", kraId).then(()=>true))===null) return;
+  KRAS = KRAS.filter(k=>k.id!==kraId);
+  KRA_ITEMS = KRA_ITEMS.filter(i=>i.kra!==kraId);
+  render();
+}
+async function deleteKraItem(itemId){
+  if(await guard(()=>DB.del("dat_kra_items", itemId).then(()=>true))===null) return;
+  KRA_ITEMS = KRA_ITEMS.filter(i=>i.id!==itemId);
+  render();
+}
+
+function openKraCycleModal(uid){
+  modal(`<div class="modal">
+    <h3>New review cycle</h3>
+    <div class="msub">For ${esc(U(uid)?.name||"this person")}.</div>
+    <form id="kraCycForm" class="f-grid">
+      <div class="field"><label>Type</label><select id="kcType">
+        <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option>
+        <option value="annual" selected>Annual</option></select></div>
+      <div class="field"><label>Label</label><input id="kcLabel" required maxlength="60" placeholder="e.g. FY 2026-27"></div>
+      <div class="f-grid f-2">
+        <div class="field"><label>Start date</label><input id="kcStart" type="date" required></div>
+        <div class="field"><label>End date</label><input id="kcEnd" type="date" required></div>
+      </div>
+      <div class="m-actions"><button type="button" class="btn" onclick="closeModal()">Cancel</button>
+        <div class="grow"></div><button class="btn primary" type="submit">Create</button></div>
+    </form></div>`);
+  $("#kraCycForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const row = await guard(()=>DB.ins("dat_kra_cycles",{
+      user_id:uid, period_type:$("#kcType").value, period_label:$("#kcLabel").value.trim(),
+      period_start:$("#kcStart").value, period_end:$("#kcEnd").value,
+      reviewer:state.me.id, created_by:state.me.id}));
+    if(!row) return;
+    KRA_CYCLES.push(mapKraCycle(row));
+    state.kraCycle = row.id;
+    closeModal(); toast("Review cycle created ✓"); render();
+  });
+}
+
+function openKraModal(cycleId){
+  modal(`<div class="modal">
+    <h3>Add a KRA</h3>
+    <div class="msub">One weighted Key Result Area - the rows in the sheet like "Contract Drafting & Lifecycle Management, 15%".</div>
+    <form id="kraForm" class="f-grid">
+      <div class="field"><label>KRA name</label><input id="kName" required maxlength="200" placeholder="e.g. Contract Drafting & Lifecycle Management"></div>
+      <div class="field"><label>Weight %</label><input id="kWeight" type="number" min="0" max="100" step="0.5" required></div>
+      <div class="m-actions"><button type="button" class="btn" onclick="closeModal()">Cancel</button>
+        <div class="grow"></div><button class="btn primary" type="submit">Add</button></div>
+    </form></div>`);
+  $("#kraForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const seq = kraOf(cycleId).length;
+    const row = await guard(()=>DB.ins("dat_kras",{cycle_id:cycleId, name:$("#kName").value.trim(),
+      weight:parseFloat($("#kWeight").value)||0, seq}));
+    if(!row) return;
+    KRAS.push(mapKra(row)); closeModal(); toast("KRA added ✓"); render();
+  });
+}
+
+function openKraItemModal(kraId){
+  modal(`<div class="modal wide">
+    <h3>Add a measure</h3>
+    <div class="msub">One lettered line under the KRA - its standard, and a number if it has one.</div>
+    <form id="kraItemForm" class="f-grid">
+      <div class="field"><label>Measure</label><input id="iMeasure" required maxlength="500" placeholder="e.g. New Contract / Document Drafting"></div>
+      <div class="field"><label>Standard / TAT</label><input id="iStandard" maxlength="500" placeholder="e.g. TAT: 3 days for new drafts"></div>
+      <div class="f-grid f-3">
+        <div class="field"><label>Target number (optional)</label><input id="iTarget" type="number" step="0.01"></div>
+        <div class="field"><label>Unit</label><input id="iUnit" maxlength="40" placeholder="Documents"></div>
+        <div class="field"><label>Cadence</label><select id="iCadence">
+          <option value="">—</option><option value="weekly">Per week</option>
+          <option value="monthly">Per month</option><option value="quarterly">Per quarter</option></select></div>
+      </div>
+      <div class="field"><label>Weight within this KRA % (optional)</label><input id="iWeight" type="number" min="0" max="100" step="0.5"></div>
+      <div class="m-actions"><button type="button" class="btn" onclick="closeModal()">Cancel</button>
+        <div class="grow"></div><button class="btn primary" type="submit">Add</button></div>
+    </form></div>`);
+  $("#kraItemForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const seq = kraItemsOf(kraId).length;
+    const iw = $("#iWeight").value.trim(), tv = $("#iTarget").value.trim();
+    const row = await guard(()=>DB.ins("dat_kra_items",{kra_id:kraId, seq,
+      measure:$("#iMeasure").value.trim(), standard:$("#iStandard").value.trim(),
+      item_weight: iw===""?null:parseFloat(iw),
+      target_value: tv===""?null:parseFloat(tv),
+      target_unit:$("#iUnit").value.trim(), target_cadence:$("#iCadence").value}));
+    if(!row) return;
+    KRA_ITEMS.push(mapKraItem(row)); closeModal(); toast("Measure added ✓"); render();
+  });
 }
 
 function renderKpis(){
@@ -2191,7 +2492,8 @@ function renderKpis(){
       }).join("")}
       </tbody></table></div>
     <div style="font-size:11.5px;color:var(--muted);margin-top:9px">The marker on each bar is where they should be by today. Nobody can change their own target — only the achieved figure.</div>
-  </div>`:""}`;
+  </div>`:""}
+  ${kraCyclesFor(me.id).length?renderKraCard(me.id):""}`;
 
   document.querySelectorAll("[data-kmonth]").forEach(b=>b.addEventListener("click",()=>{
     state.kpiMonth=b.dataset.kmonth; render(); }));
@@ -2207,6 +2509,7 @@ function renderKpis(){
     b.disabled=false; b.textContent="Update";
     if(ok){ toast("Progress updated ✓"); render(); }
   }));
+  wireKraCard();
   wireCommon();
 }
 
@@ -2441,7 +2744,8 @@ function renderReview(){
           :`<div style="color:var(--muted);font-size:13px">Nothing attached in this period.</div>`; })()}
       </div>
     </div>
-  </div>`;
+  </div>
+  ${renderKraCard(u.id)}`;
 
   $("#revWho").addEventListener("change",e=>{ state.reviewOf=e.target.value; render(); });
   $("#revPeriod").addEventListener("change",e=>{ state.period=e.target.value; render(); });
@@ -2450,6 +2754,7 @@ function renderReview(){
   document.querySelectorAll("[data-revdoc]").forEach(el=>el.addEventListener("click",()=>{
     const d=DOCS.find(x=>x.id===el.dataset.revdoc); if(!d) return;
     const w=window.open("","_blank"); openDoc(d, true, w); }));
+  wireKraCard();
   wireCommon();
 }
 
