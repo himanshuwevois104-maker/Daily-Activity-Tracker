@@ -549,22 +549,80 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .day-bar input[type=date]{padding:7px 10px; border-radius:9px; border:1px solid var(--border);
   background:var(--surface); font-size:12.5px; color:var(--ink); font-family:inherit}
 .day-bar .spacer{margin-left:auto}
-/* Daily Update — one column per person, their cards, and what moved */
-.pboard{display:flex; gap:14px; overflow-x:auto; padding-bottom:18px; align-items:flex-start; margin-top:2px}
-.pcol{flex:0 0 292px; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r);
-  padding:10px; display:flex; flex-direction:column; max-height:calc(100dvh - 340px)}
-.pcol.quiet{opacity:.74}
-.pcol-head{display:flex; align-items:center; gap:9px; padding:2px 3px 9px}
-.pcol-head .nm{font-weight:650; font-size:13px; line-height:1.25; cursor:pointer}
-.pcol-head .nm:hover{color:var(--accent)}
-.pcol-head .rl{font-size:11px; color:var(--muted)}
-.pcol-head .bell{margin-left:auto; flex:none; height:22px; padding:0 9px; border-radius:99px;
+/* Daily Update — one card per person; their whole day opens in a layer on the right */
+.pgrid{display:grid; grid-template-columns:repeat(auto-fill, minmax(262px,1fr)); gap:12px; margin-top:2px}
+.pcard{background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:12px 13px 11px;
+  cursor:pointer; transition:.13s; display:flex; flex-direction:column; gap:9px; text-align:left; width:100%;
+  font-family:inherit; font-size:inherit; color:var(--ink); box-shadow:var(--shadow); appearance:none}
+.pcard:hover{transform:translateY(-1px); box-shadow:var(--shadow-lg); border-color:var(--accent)}
+.pcard.quiet{opacity:.8}
+.pcard.idle{background:transparent; border-style:dashed; box-shadow:none; opacity:.7}
+.pcard-head{display:flex; align-items:center; gap:9px}
+.pcard-head .nm{font-weight:650; font-size:13.5px; line-height:1.25}
+.pcard-head .rl{font-size:11px; color:var(--muted)}
+.pcard-head .bell{margin-left:auto; flex:none; height:22px; padding:0 9px; border-radius:99px;
   display:inline-flex; align-items:center; justify-content:center; white-space:nowrap;
   font-size:11.5px; font-weight:750; background:var(--accent); color:#fff}
-.pcol-head .bell.none{background:var(--surface); color:var(--muted); border:1px solid var(--border); font-weight:600}
-.pcol-sub{font-size:11px; color:var(--muted); padding:0 3px 9px; margin-bottom:9px;
-  border-bottom:1px solid var(--border)}
-.pcol-body{overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:40px; flex:1}
+.pcard-head .bell.none{background:var(--surface); color:var(--muted); border:1px solid var(--border); font-weight:600}
+.pcard-nums{display:grid; grid-template-columns:repeat(4,1fr); gap:4px; padding:8px 0 7px;
+  border-top:1px solid var(--grid); border-bottom:1px solid var(--grid)}
+.pcard-nums .n{text-align:center; min-width:0}
+.pcard-nums .n b{display:block; font-size:17px; font-weight:750; line-height:1.1; font-variant-numeric:tabular-nums}
+.pcard-nums .n span{display:block; font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.3px; margin-top:2px}
+.pcard-nums .n.bad b{color:var(--critical)}
+.pcard-nums .n.good b{color:var(--good)}
+.pcard-nums .n.zero b{color:var(--muted); font-weight:600}
+.pcard-foot{font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; min-width:0}
+.pcard-foot .q{color:var(--muted); font-weight:650}
+.pcard-foot .go{margin-left:auto; flex:none; color:var(--accent); font-weight:650}
+/* the layer itself: the person drawer, made wide, with a pinned head and a scrolling body */
+.drawer.wide{width:min(900px,96vw); padding:0; display:flex; flex-direction:column; overflow:hidden}
+.upl-head{flex:none; background:var(--surface); border-bottom:1px solid var(--border); padding:14px 20px 12px}
+.upl-who{display:flex; align-items:center; gap:12px}
+.upl-who .nm{font-weight:700; font-size:16px; line-height:1.2}
+.upl-who .rl{font-size:12px; color:var(--muted); margin-top:1px}
+.upl-who .acts{margin-left:auto; display:flex; gap:6px; align-items:center; flex:none}
+.upl-day{display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap}
+.upl-day .dttl{font-size:13.5px; font-weight:650; min-width:150px; line-height:1.2}
+.upl-day .dttl small{display:block; font-size:11px; font-weight:500; color:var(--muted)}
+.upl-tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px}
+.upl-tiles .tile{padding:9px 11px; box-shadow:none}
+.upl-tiles .tile .lbl{font-size:11px}
+.upl-tiles .tile .val{font-size:20px; margin-top:1px}
+.upl-tiles .tile .delta{font-size:10.5px}
+.upl-jump{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px}
+.upl-jump button{font:inherit; font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:99px;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--ink2); cursor:pointer}
+.upl-jump button:hover{color:var(--accent); border-color:var(--accent)}
+.upl-jump button b{color:var(--ink); font-weight:750}
+.upl-body{flex:1; overflow-y:auto; padding:6px 20px 44px}
+.upl-sec{margin-top:22px; scroll-margin-top:10px}
+.upl-sec .sh{display:flex; align-items:center; gap:9px; margin-bottom:8px; flex-wrap:wrap}
+.upl-sec .sh .no{width:22px; height:22px; border-radius:7px; background:var(--accent); color:#fff; font-size:11.5px;
+  font-weight:750; display:inline-flex; align-items:center; justify-content:center; flex:none}
+.upl-sec .sh h3{font-size:14px; font-weight:700}
+.upl-sec .sh .sub{font-size:11.5px; color:var(--muted)}
+.upl-sub{font-size:10.5px; font-weight:750; letter-spacing:.4px; text-transform:uppercase; color:var(--muted); margin:12px 0 3px}
+.upl-sub.bad{color:var(--critical)}
+.upl-row{display:flex; gap:10px; align-items:flex-start; padding:9px 7px; border-bottom:1px solid var(--grid);
+  cursor:pointer; border-radius:8px; transition:.1s}
+.upl-row:hover{background:var(--surface-2)}
+.upl-row .tm{flex:none; min-width:60px; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; padding-top:2px}
+.upl-row .mid{min-width:0; flex:1}
+.upl-row .t{font-size:13px; font-weight:600; color:var(--ink); line-height:1.3}
+.upl-row .s{font-size:11.5px; color:var(--muted); margin-top:2px}
+.upl-row .meta{display:flex; gap:5px; flex-wrap:wrap; margin-top:5px; align-items:center}
+.upl-row .meta .bd{font-size:10.5px; color:var(--muted)}
+.upl-row.done-row .t{text-decoration:line-through; color:var(--muted)}
+.upl-empty{font-size:12.5px; color:var(--muted); padding:11px 8px; border:1.5px dashed var(--grid); border-radius:10px}
+.upl-cards{display:grid; grid-template-columns:repeat(auto-fill, minmax(290px,1fr)); gap:8px}
+.upl-note{display:flex; gap:10px; align-items:flex-start; padding:8px 7px; border-bottom:1px solid var(--grid); font-size:12.5px}
+.upl-note .ic{width:28px; height:28px; border-radius:8px; background:var(--surface-2); display:flex; align-items:center;
+  justify-content:center; flex:none; font-size:14px}
+.upl-note .c{font-size:11px; color:var(--muted)}
+.chip.sameday{background:color-mix(in srgb,var(--good) 14%, var(--surface)); color:var(--good-text); font-weight:700}
+/* a task opened from inside the layer must sit above it, not behind it */
+body.layer-open .overlay{z-index:90}
 .uc{background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:10px 11px;
   border-left:3px solid var(--pc,var(--baseline)); cursor:pointer; transition:.12s}
 .uc:hover{transform:translateY(-1px); box-shadow:var(--shadow-lg)}
@@ -583,15 +641,6 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .uc .upd .l:last-child{margin-bottom:0}
 .uc .upd .l .tm{color:var(--muted); font-variant-numeric:tabular-nums; flex:none; min-width:52px}
 .uc .upd .l i{color:var(--muted); font-style:normal}
-.pcol-empty{font-size:11.5px; color:var(--muted); text-align:center; padding:15px 6px;
-  border:1.5px dashed var(--grid); border-radius:10px}
-.pcol.idle{flex:0 0 214px; background:transparent; border-style:dashed}
-.pcol.idle .pcol-head{padding-bottom:11px; border-bottom:1px solid var(--border); margin-bottom:9px}
-.idle-p{display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:9px; cursor:pointer}
-.idle-p:hover{background:var(--surface-2)}
-.idle-p .n{font-size:12.5px; font-weight:600; color:var(--ink2)}
-.idle-p .r{font-size:10.5px; color:var(--muted)}
-
 
 /* Section headers inside views */
 .sec-h{display:flex; align-items:center; gap:10px; margin:26px 0 13px}
@@ -622,7 +671,17 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
   .sec-h h2{flex:none}
   .day-bar .dnav{width:38px; height:38px}
   .day-bar .dttl{min-width:0}
-  .pcol{flex:0 0 84vw; max-width:310px; max-height:none}
+  .pgrid{grid-template-columns:1fr}
+  .drawer.wide{width:100vw}
+  .upl-head{padding:12px 14px 10px}
+  .upl-body{padding:4px 14px 110px}
+  /* the jump chips already carry the four counts; the tiles would take half the screen */
+  .upl-tiles{display:none}
+  .upl-who .av-lg{width:38px; height:38px; font-size:13px}
+  .upl-who .nm{font-size:14.5px}
+  .upl-who .acts .btn span{display:none}
+  .upl-row .tm{min-width:50px}
+  .upl-cards{grid-template-columns:1fr}
   .up-tiles{display:flex; overflow-x:auto; gap:10px; padding-bottom:4px}
   .up-tiles .tile{flex:0 0 156px}
   .up-tiles .tile .val{font-size:23px}
@@ -976,6 +1035,7 @@ const state = {
   kpiMonth:null, // month shown on the KPI screen (set at sign-in)
   reviewOf:null, // the person open on the review screen
   upDate:null,   // the day open on the Daily Update screen (set at sign-in)
+  upWho:null,    // the person whose day is open in the Daily Update layer
   adminTab:"accounts",
 };
 
@@ -1778,6 +1838,7 @@ async function afterLogin(){
 }
 async function logout(){
   if(chan){ sb.removeChannel(chan); chan=null; }
+  closeDrawer(); closeModal();
   await sb.auth.signOut();
   state.me=null;
   $("#app").classList.add("hidden");
@@ -1823,6 +1884,7 @@ function render(){
   markViewSeen(state.view);
   const navs = navsFor(me);
   if(!navs.find(n=>n.id===state.view)){ state.view="dashboard"; markViewSeen(state.view); }
+  if(state.upWho && state.view!=="dailyup") closeDrawer();   // the person layer belongs to Daily Update only
   $("#nav").innerHTML = navs.map(n=>{
     const pills = `${n.count?`<span class="cnt" title="${n.count} need${n.count===1?"s":""} your attention">${n.count>99?"99+":n.count}</span>`:""}${
       n.fresh?`<span class="cnt new" title="${n.fresh} update${n.fresh===1?"":"s"} since you last opened this">${n.fresh>99?"99+":n.fresh}</span>`:""}`;
@@ -3221,15 +3283,12 @@ function upByTask(evs){
   rows.forEach(e=>{ if(!m.has(e.task)) m.set(e.task,[]); m.get(e.task).push(e); });
   return m;
 }
-/* what needs doing first, when nothing moved today */
-const upDueRank = t => t.done ? 5 : !t.due ? 3 : t.due<TODAY ? 0 : t.due===TODAY ? 1 : 2;
-
-/* One card: the task as it stands, and underneath it whatever happened to it
-   on the day being looked at. */
+/* One update card: the task as it stands, and underneath it whatever happened
+   to it on the day being looked at. Used inside the person layer. */
 function upCard(t, evs, colUser, dayWord){
   const p = PIPES.find(x=>x.id===t.pipe);
   return `<div class="uc ${evs.length?"hot":""} ${t.done?"done-card":""}"
-       style="--pc:var(--s${p?p.color:1})" data-opentask="${esc(t.id)}">
+       style="--pc:var(--s${p?p.color:1})" data-upltask="${esc(t.id)}">
     <div class="tt">${evs.length?`<span class="hd">${upIcon(evs)}</span> `:""}${esc(t.title)}</div>
     ${t.stage===STAGE_PAUSE?`<div class="pz">⏸️ ${esc(t.pauseReason||"no reason given")}</div>`:""}
     <div class="meta">
@@ -3245,42 +3304,63 @@ function upCard(t, evs, colUser, dayWord){
   </div>`;
 }
 
-/* One person, one column: their name, a badge counting the day's changes, then
-   every task of theirs that is still open (plus anything they closed that day),
-   with the ones that moved floated to the top. A person who did nothing still
-   gets a column - so you can see WHAT they are sitting on, not just that they
-   were quiet. */
-function upColumn(u, date, byTask, dayWord, isMe){
+/* ---- one person, one day: the four lists a manager asked for ----
+   1. LOGGED   - tasks that were put on the board that day (by anyone, for them)
+   2. UPDATED  - tasks that moved: stage changes, pauses, due dates, notes…
+   3. OPEN     - overdue, due today, and the rest still pending - as they stand
+                 NOW, because the board has no memory of what was open on a
+                 past date, only of what happened on it
+   4. CLOSED   - tasks marked done that day, and which of them were logged the
+                 very same day, so "what got finished" is one glance.
+   Everything comes from TASKS, LOGS and the day's dat_task_events, which the
+   database has already filtered to this person's branch. */
+const taskDay = t => t.createdAt ? iso(new Date(t.createdAt)) : null;
+const byDue   = (a,b) => (a.due||"9").localeCompare(b.due||"9") || (a.createdAt||0)-(b.createdAt||0);
+function upPersonDay(uid, date, byTask){
+  const mine  = TASKS.filter(t=>t.assignee===uid);
   const evsOf = t => byTask.get(t.id) || [];
-  const cards = TASKS.filter(t=>t.assignee===u.id && (!t.done || t.doneOn===date))
-    .sort((a,b)=>{
-      const ea=evsOf(a), eb=evsOf(b);
-      if(!!eb.length !== !!ea.length) return eb.length?1:-1;             // moved today, first
-      if(ea.length && eb.length) return eb[eb.length-1].ts - ea[ea.length-1].ts;
-      return upDueRank(a)-upDueRank(b) || (a.due||"9").localeCompare(b.due||"9");
-    });
-  const n = cards.reduce((k,t)=>k+evsOf(t).length, 0);
-  const open = cards.filter(t=>!t.done).length;
-  const overdue = cards.filter(t=>!t.done && t.due && t.due<TODAY).length;
-  const paused = cards.filter(t=>t.stage===STAGE_PAUSE).length;
-  const bits = [`${open} open`];
-  if(overdue) bits.push(`${overdue} overdue`);
-  if(paused) bits.push(`${paused} paused`);
-  return {n, open, overdue, html:`<div class="pcol ${n?"":"quiet"}">
-    <div class="pcol-head">
-      ${avatar(u,"sm")}
+  const logged  = mine.filter(t=>taskDay(t)===date).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  const updated = mine.filter(t=>evsOf(t).some(e=>e.kind!=="created"))
+    .sort((a,b)=>{ const ea=evsOf(a), eb=evsOf(b); return eb[eb.length-1].ts - ea[ea.length-1].ts; });
+  const closed  = mine.filter(t=>t.done && t.doneOn===date).sort((a,b)=>(a.closedAt||0)-(b.closedAt||0));
+  const sameDay = closed.filter(t=>taskDay(t)===date);
+  const open    = mine.filter(t=>!t.done);
+  const overdue = open.filter(t=>t.due && t.due<TODAY).sort(byDue);
+  const dueToday= open.filter(t=>t.due===TODAY).sort(byDue);
+  const pending = open.filter(t=>!t.due || t.due>TODAY).sort(byDue);
+  const paused  = open.filter(t=>t.stage===STAGE_PAUSE);
+  const notes   = LOGS.filter(l=>l.user===uid && l.date===date).sort((a,b)=>a.id.localeCompare(b.id));
+  const evs     = mine.flatMap(evsOf);
+  const last    = evs.reduce((m,e)=>e.ts>m?e.ts:m, 0);
+  return {logged, updated, closed, sameDay, open, overdue, dueToday, pending, paused, notes,
+          n:evs.length, last};
+}
+
+/* One person, one card on the team grid: the four numbers, the bell, and a
+   line saying whether they went quiet. The whole card opens their day. */
+function upPersonCard(u, d, dayWord, isMe){
+  const quiet = d.n===0, idle = quiet && !d.open.length;
+  const num = (v, lbl, cls) => `<div class="n ${v?cls||"":"zero"}"><b>${v}</b><span>${lbl}</span></div>`;
+  const foot = idle ? `<span class="q">Nothing on the board</span>`
+    : quiet ? `${d.open.length} open${d.paused.length?` · ${d.paused.length} paused`:""} · <span class="q">nothing logged ${esc(dayWord)}</span>`
+    : `${d.open.length} open${d.paused.length?` · ${d.paused.length} paused`:""} · last update ${esc(upTime(d.last))}`;
+  return `<button class="pcard ${idle?"idle":quiet?"quiet":""}" data-upwho="${esc(u.id)}" type="button">
+    <div class="pcard-head">
+      ${avatar(u,"md")}
       <div style="min-width:0">
-        <div class="nm" data-person="${esc(u.id)}">${esc(u.name)}${isMe?" (you)":""}</div>
+        <div class="nm">${esc(u.name)}${isMe?" (you)":""}</div>
         <div class="rl">${esc(titleOf(u))}</div>
       </div>
-      <span class="bell ${n?"":"none"}" title="${n?`${n} change${n===1?"":"s"} ${dayWord}`:`nothing logged ${dayWord}`}">${n?"🔔 "+n:"—"}</span>
+      <span class="bell ${d.n?"":"none"}" title="${d.n?`${d.n} change${d.n===1?"":"s"} ${esc(dayWord)}`:`nothing logged ${esc(dayWord)}`}">${d.n?"🔔 "+d.n:"—"}</span>
     </div>
-    <div class="pcol-sub">${esc(bits.join(" · "))}${n?"":` · <b style="color:var(--muted)">nothing logged ${esc(dayWord)}</b>`}</div>
-    <div class="pcol-body">
-      ${cards.length ? cards.map(t=>upCard(t, evsOf(t), u.id, dayWord)).join("")
-                     : `<div class="pcol-empty">No open tasks on the board</div>`}
+    <div class="pcard-nums">
+      ${num(d.logged.length, "Logged", "")}
+      ${num(d.updated.length, "Updated", "")}
+      ${num(d.overdue.length, "Overdue", "bad")}
+      ${num(d.closed.length, "Closed", "good")}
     </div>
-  </div>`};
+    <div class="pcard-foot"><span style="min-width:0;flex:1;line-height:1.35">${foot}</span><span class="go">Open day ›</span></div>
+  </button>`;
 }
 
 function upBodyHTML(date, evsAll){
@@ -3289,34 +3369,35 @@ function upBodyHTML(date, evsAll){
   const flat = [...byTask.values()].flat();
   const dayWord = date===TODAY ? "so far today" : "on "+fmtDate(date);
 
-  const built = people.map(u=>Object.assign({u}, upColumn(u, date, byTask, dayWord, false)));
-  /* Busiest first, then whoever is carrying the most work. Somebody with
-     nothing on the board at all is not a column worth 292px of a leader's
-     screen every morning - those names go in one narrow strip at the end. */
-  const active = built.filter(c=>c.n>0 || c.open>0)
-    .sort((a,b)=> b.n-a.n || b.overdue-a.overdue || b.open-a.open || a.u.name.localeCompare(b.u.name));
-  const idle = built.filter(c=>c.n===0 && c.open===0);
+  const built = people.map(u=>({u, d:upPersonDay(u.id, date, byTask)}));
+  /* Busiest first, then whoever is carrying the most overdue work, then the
+     most open work. Somebody with nothing on the board at all goes last,
+     dimmed - still a name you can open, never a column of empty space. */
+  built.sort((a,b)=> b.d.n-a.d.n || b.d.overdue.length-a.d.overdue.length
+                  || b.d.open.length-a.d.open.length || a.u.name.localeCompare(b.u.name));
   /* your own work goes last, after the team you are reading about */
-  const own = upColumn(me, date, byTask, dayWord, true);
-  const ownHasSomething = own.n > 0 || own.open > 0;
+  const own = upPersonDay(me.id, date, byTask);
+  const ownHasSomething = own.n > 0 || own.open.length > 0;
 
-  const updatedN = built.filter(c=>c.n>0).length;
-  const doneN   = flat.filter(e=>e.kind==="done").length;
-  const pausedN = flat.filter(e=>e.kind==="paused").length;
-  const quietBusy = people.filter(u=>!TASKS.some(t=>t.assignee===u.id && byTask.has(t.id))
-                                  && TASKS.some(t=>t.assignee===u.id && !t.done)).length;
+  const everyone = [...built.map(x=>x.d), ...(ownHasSomething?[own]:[])];
+  const updatedN = built.filter(x=>x.d.n>0).length;
+  const loggedN  = everyone.reduce((k,d)=>k+d.logged.length, 0);
+  const doneN    = everyone.reduce((k,d)=>k+d.closed.length, 0);
+  const sameN    = everyone.reduce((k,d)=>k+d.sameDay.length, 0);
+  const pausedN  = flat.filter(e=>e.kind==="paused").length;
+  const quietBusy = built.filter(x=>x.d.n===0 && x.d.open.length>0).length;
 
   const tiles = `<div class="grid g-kpis up-tiles">
     <div class="card tile"><div class="lbl">People who updated</div>
       <div class="val">${updatedN}<span style="font-size:15px;color:var(--muted)"> of ${people.length}</span></div>
       <div class="delta ${quietBusy?"down":""}">${quietBusy?`${quietBusy} with open work and nothing logged`:"nobody with open work went quiet"}</div></div>
     <div class="card tile"><div class="lbl">Updates</div><div class="val">${flat.length}</div>
-      <div class="delta">changes recorded ${esc(dayWord)}</div></div>
-    <div class="card tile"><div class="lbl">Tasks touched</div><div class="val">${byTask.size}</div>
-      <div class="delta">distinct tasks</div></div>
-    <div class="card tile"><div class="lbl">Completed</div>
+      <div class="delta">changes on ${byTask.size} task${byTask.size===1?"":"s"} ${esc(dayWord)}</div></div>
+    <div class="card tile"><div class="lbl">Logged</div><div class="val">${loggedN}</div>
+      <div class="delta">new task${loggedN===1?"":"s"} put on the board ${esc(dayWord)}</div></div>
+    <div class="card tile"><div class="lbl">Closed</div>
       <div class="val" style="${doneN?"color:var(--good)":""}">${doneN}</div>
-      <div class="delta">marked done ${esc(dayWord)}</div></div>
+      <div class="delta">${doneN?`${sameN} logged and closed the same day`:`nothing marked done ${esc(dayWord)}`}</div></div>
     <div class="card tile"><div class="lbl">Paused</div>
       <div class="val" style="${pausedN?"color:var(--warning)":""}">${pausedN}</div>
       <div class="delta">${pausedN?"a reason is on each one":"nothing blocked"}</div></div>
@@ -3326,28 +3407,155 @@ function upBodyHTML(date, evsAll){
 
   return `${tiles}
     <div class="sec-h"><h2>Your team</h2>
-      <div class="sub">One column per person &middot; a card with 🔔 moved ${esc(dayWord)} &middot; click any card to open it</div></div>
-    <div class="pboard">
-      ${active.map(c=>c.html).join("")}
-      ${ownHasSomething ? own.html : ""}
-      ${idle.length ? `<div class="pcol idle">
-        <div class="pcol-head"><div style="min-width:0">
-          <div class="nm" style="cursor:default">Nothing on the board</div>
-          <div class="rl">${idle.length} ${idle.length===1?"person has":"people have"} no open task waiting to be moved</div>
-        </div></div>
-        <div class="pcol-body">${idle.map(c=>
-          `<div class="idle-p" data-person="${esc(c.u.id)}">${avatar(c.u,"sm")}
-            <div style="min-width:0"><div class="n">${esc(c.u.name)}</div>
-            <div class="r">${esc(titleOf(c.u))}</div></div></div>`).join("")}</div>
-      </div>` : ""}
+      <div class="sub">One card per person &middot; 🔔 counts what moved ${esc(dayWord)} &middot; click a name to open their day: logged, updated, overdue and closed</div></div>
+    <div class="pgrid">
+      ${built.map(x=>upPersonCard(x.u, x.d, dayWord, false)).join("")}
+      ${ownHasSomething ? upPersonCard(me, own, dayWord, true) : ""}
     </div>`;
+}
+
+/* ================= the person layer =================
+   Click a name on the team grid and their day slides in over it: the same
+   drawer the profile uses, made wide. It is painted from the day already in
+   UPCACHE, so stepping ‹ › through days inside it is instant once each day has
+   been fetched, and a live change repaints it in place (upFill → upLayerPaint)
+   without losing where you had scrolled to. */
+function openUpLayer(uid){
+  if(!U(uid)) return;
+  state.upWho = uid;
+  const dr = $("#drawer");
+  dr.classList.add("wide","open"); $("#drawerScrim").classList.add("open");
+  document.body.classList.add("layer-open");
+  upLayerPaint();
+}
+function upLayerPaint(){
+  const uid = state.upWho, u = U(uid), dr = $("#drawer");
+  if(!uid || !u){ closeDrawer(); return; }
+  const date = state.upDate || TODAY, isToday = date===TODAY;
+  const evs = UPCACHE[date];
+  const keep = dr.querySelector(".upl-body")?.scrollTop || 0;
+  const head = `<div class="upl-head">
+    <div class="upl-who">${avatar(u,"lg")}
+      <div style="min-width:0"><div class="nm">${esc(u.name)}${uid===state.me.id?" (you)":""}</div>
+        <div class="rl">${esc(titleOf(u))}</div></div>
+      <div class="acts">
+        <button class="btn sm" id="uplProfile" type="button">Profile</button>
+        ${teamPeople().some(p=>p.id===uid)?`<button class="btn sm" id="uplReview" type="button">📋 Review</button>`:""}
+        <button class="icon-btn" id="uplX" title="Close" aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="upl-day">
+      <button class="dnav" id="uplPrev" title="Previous day" aria-label="Previous day" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:16px;color:var(--ink2);font-family:inherit">‹</button>
+      <div class="dttl">${esc(fmtDateLong(date))}<small>${esc(upDayWord(date))}</small></div>
+      <button class="dnav" id="uplNext" title="Next day" aria-label="Next day" ${isToday?"disabled":""} style="width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:16px;color:var(--ink2);font-family:inherit;${isToday?"opacity:.32;cursor:default":""}">›</button>
+      ${isToday?"":`<button class="btn sm" id="uplToday" type="button">Jump to today</button>`}
+    </div>`;
+  if(!evs){
+    dr.innerHTML = `${head}</div><div class="upl-body"><div style="color:var(--muted);font-size:13px;padding:18px 0">Loading ${esc(fmtDate(date))}…</div></div>`;
+    upLayerWire(); return;
+  }
+  const d = upPersonDay(uid, date, upByTask(evs));
+  const dayWord = isToday ? "so far today" : "on "+fmtDate(date);
+  const dayCap  = isToday ? "today" : "on "+fmtDate(date);
+  const row = (t, tm, extra="") => { const p = PIPES.find(x=>x.id===t.pipe);
+    return `<div class="upl-row ${t.done?"done-row":""}" data-upltask="${esc(t.id)}">
+      <span class="tm">${esc(tm)}</span>
+      <div class="mid"><div class="t">${esc(t.title)}</div>
+        ${t.stage===STAGE_PAUSE?`<div class="s" style="color:#8a6206">⏸ ${esc(t.pauseReason||"no reason given")}</div>`:""}
+        ${extra?`<div class="s">${extra}</div>`:""}
+        <div class="meta">${t.done?"":`<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>`}
+          ${prChip(t.pr)}${dueChip(t)}${p?`<span class="bd">${esc(p.name)}</span>`:""}</div>
+      </div></div>`; };
+  const by = t => t.createdBy && t.createdBy!==uid ? ` · by ${esc(U(t.createdBy)?.name||"someone")}` : "";
+  const sec = (no, title, sub, body, id) => `<div class="upl-sec" id="${id}">
+    <div class="sh"><span class="no">${no}</span><h3>${title}</h3><span class="sub">${sub}</span></div>${body}</div>`;
+  const empty = s => `<div class="upl-empty">${s}</div>`;
+
+  /* 1 · logged */
+  const loggedBody = (d.logged.length ? d.logged.map(t=>row(t, upTime(t.createdAt),
+      [t.createdBy && t.createdBy!==uid ? `Logged by ${esc(U(t.createdBy)?.name||"someone")}` : "",
+       t.done&&t.doneOn===date ? `<b style="color:var(--good-text)">closed the same day${t.closedAt?` at ${esc(upTime(t.closedAt))}`:""}</b>` : ""
+      ].filter(Boolean).join(" · "))).join("")
+    : empty(`No task was logged for ${esc(u.name.split(" ")[0])} ${esc(dayCap)}.`))
+    + (d.notes.length ? `<div class="upl-sub">Activity notes in the Daily Log (${d.notes.length})</div>
+        ${d.notes.map(l=>{ const c=catOf(l.cat); return `<div class="upl-note"><div class="ic">${c.ic}</div>
+          <div style="min-width:0"><div class="c">${esc(c.name)}</div><div>${esc(l.note)}</div></div></div>`;}).join("")}` : "");
+
+  /* 2 · updated */
+  const byTask = upByTask(evs);
+  const updBody = d.updated.length
+    ? `<div class="upl-cards">${d.updated.map(t=>upCard(t, byTask.get(t.id)||[], uid, dayWord)).join("")}</div>`
+    : empty(`Nothing moved ${esc(dayCap)} — no stage change, pause, due date or note on any of their tasks.`);
+  const updN = d.updated.reduce((k,t)=>k+(byTask.get(t.id)||[]).length, 0);
+
+  /* 3 · open: overdue, due today, pending */
+  const sinceTxt = t => { const n = daysInStage(t); return n==null ? "" : ` · ${n===0?`in ${esc(t.stage)} since today`:`${n} day${n===1?"":"s"} in ${esc(t.stage)}`}`; };
+  const loggedOn = t => taskDay(t) ? `Logged ${esc(taskDay(t)===TODAY ? "today" : fmtDate(taskDay(t)))}` : "Logged earlier";
+  const openBody = d.open.length ? `
+    ${d.overdue.length ? `<div class="upl-sub bad">Overdue (${d.overdue.length})</div>${d.overdue.map(t=>row(t, "⚠ "+fmtDate(t.due),
+        `Due ${esc(fmtDate(t.due))} — ${Math.round((todayD - new Date(t.due+"T00:00:00"))/DAY)} day${Math.round((todayD - new Date(t.due+"T00:00:00"))/DAY)===1?"":"s"} late${sinceTxt(t)}`)).join("")}` : ""}
+    ${d.dueToday.length ? `<div class="upl-sub">Due today (${d.dueToday.length})</div>${d.dueToday.map(t=>row(t, "● today", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}
+    ${d.pending.length ? `<div class="upl-sub">Pending (${d.pending.length})</div>${d.pending.map(t=>row(t, t.due?fmtDate(t.due):"no date", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}`
+    : empty("Nothing open — every task on their board is done.");
+
+  /* 4 · closed */
+  const closedBody = d.closed.length ? d.closed.map(t=>row(t, t.closedAt?upTime(t.closedAt):"—",
+      `Logged ${esc(taskDay(t)===date ? upTime(t.createdAt) : (taskDay(t)?fmtDate(taskDay(t)):"earlier"))}${by(t)}${
+        taskDay(t)===date ? ` <span class="chip sameday">✓ Logged &amp; closed ${esc(isToday?"today":"same day")}</span>` : ""}`)).join("")
+    : empty(`Nothing was marked done ${esc(dayCap)}.`);
+
+  const jump = (id, n, lbl) => `<button type="button" data-upljump="${id}"><b>${n}</b> ${lbl}</button>`;
+  dr.innerHTML = `${head}
+    <div class="upl-tiles">
+      <div class="card tile"><div class="lbl">Logged ${esc(isToday?"today":"that day")}</div><div class="val">${d.logged.length}</div>
+        <div class="delta">${d.logged.length?`${d.logged.filter(t=>t.done&&t.doneOn===date).length} already closed`:"no new task"}</div></div>
+      <div class="card tile"><div class="lbl">Updates</div><div class="val">${updN}</div>
+        <div class="delta">on ${d.updated.length} task${d.updated.length===1?"":"s"}</div></div>
+      <div class="card tile"><div class="lbl">Overdue / pending</div>
+        <div class="val"><span style="${d.overdue.length?"color:var(--critical)":""}">${d.overdue.length}</span><span style="font-size:14px;color:var(--muted)"> / ${d.open.length}</span></div>
+        <div class="delta">${d.open.length?`${d.open.length} open${d.paused.length?` · ${d.paused.length} paused`:""}`:"nothing open"}</div></div>
+      <div class="card tile"><div class="lbl">Closed ${esc(isToday?"today":"that day")}</div>
+        <div class="val" style="${d.closed.length?"color:var(--good)":""}">${d.closed.length}</div>
+        <div class="delta">${d.closed.length?`${d.sameDay.length} logged &amp; closed same day`:"nothing finished"}</div></div>
+    </div>
+    <div class="upl-jump">
+      ${jump("uplLogged", d.logged.length, isToday?"Today's log":"Logged")}
+      ${jump("uplUpdated", updN, "Updates")}
+      ${jump("uplOpen", d.open.length, "Overdue / pending")}
+      ${jump("uplClosed", d.closed.length, isToday?"Closed today":"Closed")}
+    </div>
+  </div>
+  <div class="upl-body">
+    ${sec(1, isToday?"Today's log":"Logged "+esc(fmtDate(date)), `${d.logged.length} task${d.logged.length===1?"":"s"} put on the board ${esc(dayCap)}`, loggedBody, "uplLogged")}
+    ${sec(2, "Updates", `${updN} change${updN===1?"":"s"} ${esc(dayWord)} — stage moves, pauses, due dates, priority, notes`, updBody, "uplUpdated")}
+    ${sec(3, "Overdue / pending", `${d.open.length} open task${d.open.length===1?"":"s"}${isToday?"":" as they stand now"} — overdue first`, openBody, "uplOpen")}
+    ${sec(4, isToday?"Closed today":"Closed "+esc(fmtDate(date)), `${d.closed.length} marked done${d.closed.length?` · ${d.sameDay.length} logged and closed the same day`:""}`, closedBody, "uplClosed")}
+  </div>`;
+  upLayerWire();
+  const body = dr.querySelector(".upl-body"); if(body && keep) body.scrollTop = keep;
+}
+function upLayerWire(){
+  const dr = $("#drawer"), uid = state.upWho;
+  const on = (sel, fn) => { const el = dr.querySelector(sel); if(el) el.addEventListener("click", fn); };
+  on("#uplX", closeDrawer);
+  on("#uplPrev", ()=>upGo(-1));
+  on("#uplNext", ()=>upGo(1));
+  on("#uplToday", ()=>upSet(TODAY));
+  on("#uplProfile", ()=>{ closeDrawer(); openPerson(uid); });
+  on("#uplReview", ()=>{ closeDrawer(); state.reviewOf=uid; state.view="review"; render(); });
+  dr.querySelectorAll("[data-upljump]").forEach(b=>b.addEventListener("click", ()=>{
+    const el = dr.querySelector("#"+b.dataset.upljump); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); }));
+  /* a task opens on top of the layer and the layer is still there when it closes */
+  dr.querySelectorAll("[data-upltask]").forEach(el=>el.addEventListener("click", ()=>openTaskModal(el.dataset.upltask)));
 }
 
 async function upFill(date){
   const host = $("#upBody"); if(!host) return;
   const my = ++upToken;
-  if(!UPCACHE[date])
+  if(!UPCACHE[date]){
     host.innerHTML = `<div class="card card-pad" style="color:var(--muted); font-size:13px">Loading ${esc(fmtDate(date))}…</div>`;
+    if(state.upWho) upLayerPaint();        // the layer shows the same "loading" while the day is fetched
+  }
   let evs;
   try{ evs = await loadDayEvents(date); }
   catch(e){
@@ -3356,11 +3564,15 @@ async function upFill(date){
     host.innerHTML = `<div class="card card-pad">
       <b style="font-size:14px">Could not load that day.</b>
       <div style="color:var(--muted); font-size:13px; margin-top:6px">${esc(e.message||String(e))}</div></div>`;
+    if(state.upWho){ const b=$("#drawer .upl-body"); if(b) b.innerHTML =
+      `<div class="upl-empty" style="margin-top:16px">Could not load that day — ${esc(e.message||String(e))}</div>`; }
     return;
   }
   if(my!==upToken || state.view!=="dailyup") return;
   host.innerHTML = upBodyHTML(date, evs);
+  host.querySelectorAll("[data-upwho]").forEach(el=>el.addEventListener("click", ()=>openUpLayer(el.dataset.upwho)));
   wireCommon();
+  if(state.upWho) upLayerPaint();          // the open layer follows the day and the data
 }
 
 function renderDailyUp(){
@@ -5750,7 +5962,11 @@ function mountPersonTimeline(sel, id){
     if(t){ closeDrawer(); openTaskModal(t.id); }
   }));
 }
-function closeDrawer(){ $("#drawer").classList.remove("open"); $("#drawerScrim").classList.remove("open"); }
+function closeDrawer(){
+  $("#drawer").classList.remove("open","wide"); $("#drawerScrim").classList.remove("open");
+  document.body.classList.remove("layer-open");
+  state.upWho = null;                       // the Daily Update layer, if that is what was open
+}
 
 /* ================= common wiring & init ================= */
 function wireCommon(){
@@ -5779,7 +5995,10 @@ $("#quickAdd").addEventListener("click",()=>{
   else if(state.view==="tenders"){ openTenderModal(null); }
   else openTaskModal(null,{});
 });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeModal(); closeDrawer(); hideTip(); } });
+/* Escape peels one layer at a time: a task opened from inside the person layer
+   closes on its own, and the layer underneath stays. */
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){
+  if($("#overlayHost").innerHTML) closeModal(); else closeDrawer(); hideTip(); } });
 
 paintNotifBtn();
 wireNotifBridge();
