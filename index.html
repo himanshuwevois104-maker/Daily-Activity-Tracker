@@ -425,6 +425,13 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
 .board-head .grow{flex:1}
 .board-pick{padding:9px 13px;border-radius:11px;border:1px solid var(--border);background:var(--surface);
   font-size:13.5px;font-weight:650;color:var(--ink);min-width:230px}
+.board-owner-filter{position:relative}
+.board-owner-filter summary{list-style:none;cursor:pointer;white-space:nowrap}
+.board-owner-filter summary::-webkit-details-marker{display:none}
+.board-owner-menu{position:absolute;z-index:20;top:calc(100% + 7px);left:0;min-width:230px;max-height:280px;overflow:auto;
+  padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow,0 8px 24px #0002)}
+.board-owner-option{display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;font-size:13px;cursor:pointer}
+.board-owner-option:hover{background:var(--surface-2)}
 .board-sub{font-size:12px;color:var(--muted);margin:-4px 0 12px 2px}
 .btn .cnt{background:var(--accent);color:#fff;border-radius:99px;padding:0 6px;font-size:10.5px;
   font-weight:800;margin-left:4px}
@@ -621,6 +628,29 @@ table.simple tr.click{cursor:pointer} table.simple tr.click:hover td{background:
   justify-content:center; flex:none; font-size:14px}
 .upl-note .c{font-size:11px; color:var(--muted)}
 .chip.sameday{background:color-mix(in srgb,var(--good) 14%, var(--surface)); color:var(--good-text); font-weight:700}
+/* My Day — the same lists, with the buttons that move your own tasks */
+.md-wrap{max-width:1040px}
+.md-wrap .upl-tiles{margin-top:0}
+.md-wrap .upl-sec{background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+  box-shadow:var(--shadow); padding:14px 16px 10px; margin-top:16px}
+.md-wrap .upl-sec .sh{margin-bottom:6px}
+.md-acts{display:flex; gap:5px; flex-wrap:wrap; margin-top:8px}
+.md-acts .act{font:inherit; font-size:11.5px; font-weight:650; padding:4px 10px; border-radius:8px;
+  border:1px solid var(--border); background:var(--surface); color:var(--ink2); cursor:pointer; line-height:1.4; transition:.12s}
+.md-acts .act:hover{color:var(--ink); border-color:var(--accent); box-shadow:var(--shadow)}
+.md-acts .act.done{color:var(--good-text); border-color:color-mix(in srgb,var(--good) 45%, transparent)}
+.md-acts .act.done:hover{background:color-mix(in srgb,var(--good) 12%, var(--surface))}
+.md-acts .act.pause{color:#8a6206; border-color:color-mix(in srgb,var(--warning) 50%, transparent)}
+[data-theme="dark"] .md-acts .act.pause{color:var(--warning)}
+.md-note{display:flex; gap:6px; margin-top:7px; align-items:center}
+.md-note input{flex:1; min-width:0; padding:7px 10px; border-radius:8px; border:1px solid var(--border);
+  background:var(--surface); font:inherit; font-size:12.5px; color:var(--ink)}
+.md-logform{display:flex; gap:6px; flex-wrap:wrap; margin-top:12px; padding:10px; align-items:center;
+  border:1.5px dashed var(--grid); border-radius:10px; background:var(--surface-2)}
+.md-logform select,.md-logform input{padding:7px 10px; border-radius:8px; border:1px solid var(--border);
+  background:var(--surface); font:inherit; font-size:12.5px; color:var(--ink)}
+.md-logform input{flex:1; min-width:180px}
+.uc .md-acts{margin-top:9px; padding-top:8px; border-top:1px dashed var(--border)}
 /* a task opened from inside the layer must sit above it, not behind it */
 body.layer-open .overlay{z-index:90}
 .uc{background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:10px 11px;
@@ -682,6 +712,9 @@ body.layer-open .overlay{z-index:90}
   .upl-who .acts .btn span{display:none}
   .upl-row .tm{min-width:50px}
   .upl-cards{grid-template-columns:1fr}
+  .md-wrap .upl-tiles{display:grid; grid-template-columns:repeat(2,1fr)}
+  .md-wrap .upl-sec{padding:12px 12px 8px}
+  .md-logform input{min-width:0; flex-basis:100%}
   .up-tiles{display:flex; overflow-x:auto; gap:10px; padding-bottom:4px}
   .up-tiles .tile{flex:0 0 156px}
   .up-tiles .tile .val{font-size:23px}
@@ -1024,6 +1057,7 @@ async function addEvent(type,text){
 /* ---------------- app state ---------------- */
 const state = {
   me:null, view:"dashboard", pipe:"p1",
+  pipeOwners:null, pipeOwnerFilterOpen:false, // manager board owners; defaulted to self at sign-in
   fAssignee:"all", fPriority:"all", fSearch:"", showDone:true, showFilters:false,
   theme: (matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
   logWho:null,   // person filter on daily-log view (managers+)
@@ -1036,6 +1070,7 @@ const state = {
   reviewOf:null, // the person open on the review screen
   upDate:null,   // the day open on the Daily Update screen (set at sign-in)
   upWho:null,    // the person whose day is open in the Daily Update layer
+  mdDate:null,   // the day open on My Day (set at sign-in)
   adminTab:"accounts",
 };
 
@@ -1685,17 +1720,20 @@ const NAVS = [
   {id:"kpis",      label:"KPIs",      ic:IC.kpi},
   {id:"documents", label:"Documents", ic:IC.doc},
 ];
-const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log",
+const VIEW_TITLES = {dashboard:"Dashboard", pipelines:"Daily Tasks", daily:"Daily Log", myday:"My Day",
   dailyup:"Daily Update", kpis:"KPIs", documents:"Documents", legal:"Legal repository",
   tenders:"Tenders",
   groups:"Groups", team:"Team",
   review:"Employee review", admin:"Admin console", requests:"My requests"};
 function navsFor(me){
   const n=[...NAVS];
-  /* Daily Update sits straight after the board, and only for people who have
-     somebody under them - it is a leadership read-out, not a personal screen. */
+  /* My Day sits straight after the board, for everyone: your own day in the
+     same four lists a manager reads, with the buttons to update it. */
+  n.splice(2, 0, {id:"myday", label:"My Day", ic:IC.log});
+  /* Daily Update follows it, and only for people who have somebody under
+     them - it is a leadership read-out, not a personal screen. */
   if(teamPeople().length){
-    n.splice(2, 0, {id:"dailyup", label:"Daily Update", ic:IC.day});
+    n.splice(3, 0, {id:"dailyup", label:"Daily Update", ic:IC.day});
     n.push({id:"review", label:"Review", ic:IC.review});
   }
   /* Legal sits with Documents — a register, not a personal screen. Only the
@@ -1828,9 +1866,12 @@ async function afterLogin(){
   state.me = USERS.find(u=>u.id===user.id);
   if(!state.me || !state.me.active){ renderNoProfile(user.email); return; }
   state.view="dashboard"; state.logWho=null; state.docWho=null; state.adminTab="accounts";
-  state.kpiMonth = THIS_MONTH; state.upDate = TODAY;
+  state.kpiMonth = THIS_MONTH; state.upDate = TODAY; state.mdDate = TODAY;
   state.fAssignee="all"; state.fPriority="all"; state.fSearch="";
-  const vp = visiblePipes(state.me); state.pipe = vp[0]?.id || null;
+  state.pipeOwners = state.me.level==="manager" ? [state.me.id] : null;
+  state.pipeOwnerFilterOpen = false;
+  const vp = visiblePipes(state.me).filter(p=>state.me.level!=="manager" || state.pipeOwners.includes(p.createdBy));
+  state.pipe = vp[0]?.id || null;
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
   render();
@@ -1902,6 +1943,7 @@ function render(){
     : state.view==="groups" ? "Rooms for work that crosses teams — only members can read them"
     : state.view==="pipelines" ? "Start · In Progress · Pause · Done — every move is recorded"
     : state.view==="dailyup" ? "One day at a time — who updated what, and who did not"
+    : state.view==="myday" ? "Your own day — logged, moved, still open, closed. Move a task, add a note or log an activity right here"
     : state.view==="kpis" ? "Targets are set from above; the figure you achieved is yours to update"
     : state.view==="review" ? "One person, one period — everything you need for the conversation"
     : fmtDateLong(TODAY);
@@ -1916,7 +1958,7 @@ function render(){
     : state.view==="kpis" ? "Set targets" : "New task";
   applyTheme(); paintNotifBtn();
   ({dashboard:renderDashboard, pipelines:renderPipelines, daily:renderDaily,
-    dailyup:renderDailyUp, kpis:renderKpis,
+    dailyup:renderDailyUp, myday:renderMyDay, kpis:renderKpis,
     documents:renderDocs, legal:renderLegal, tenders:renderTenders, groups:renderGroups, team:renderTeam, review:renderReview,
     admin:renderAdmin, requests:renderRequests}[state.view])();
 }
@@ -3226,6 +3268,10 @@ function upCacheDrop(createdAt){
     clearTimeout(upTimer);
     upTimer = setTimeout(()=>{ if(state.view==="dailyup") upFill(state.upDate||TODAY); }, 900);
   }
+  if(state.me && state.view==="myday" && (state.mdDate||TODAY)===d && !$("#overlayHost").innerHTML){
+    clearTimeout(upTimer);
+    upTimer = setTimeout(()=>{ if(state.view==="myday") myDayFill(state.mdDate||TODAY); }, 900);
+  }
 }
 
 const upDayWord = d => d===TODAY ? "Today" : d===dOff(-1) ? "Yesterday"
@@ -3285,7 +3331,7 @@ function upByTask(evs){
 }
 /* One update card: the task as it stands, and underneath it whatever happened
    to it on the day being looked at. Used inside the person layer. */
-function upCard(t, evs, colUser, dayWord){
+function upCard(t, evs, colUser, dayWord, actsHTML=""){
   const p = PIPES.find(x=>x.id===t.pipe);
   return `<div class="uc ${evs.length?"hot":""} ${t.done?"done-card":""}"
        style="--pc:var(--s${p?p.color:1})" data-upltask="${esc(t.id)}">
@@ -3301,6 +3347,7 @@ function upCard(t, evs, colUser, dayWord){
       ${evs.map(e=>`<div class="l"><span class="tm">${esc(upTime(e.ts))}</span>
         <span>${upLine(e)}${e.actor!==colUser?` <i>— by ${esc(U(e.actor)?U(e.actor).name:"someone")}</i>`:""}</span></div>`).join("")}
     </div>`:""}
+    ${actsHTML}
   </div>`;
 }
 
@@ -3428,6 +3475,111 @@ function openUpLayer(uid){
   document.body.classList.add("layer-open");
   upLayerPaint();
 }
+/* ---- the four lists of one person's day, as HTML ----
+   Shared by the manager's layer (read-out: click a row to open the task) and
+   by My Day (the person's own screen, with the stage buttons, note box and
+   activity-log form on the rows, so the day is updated from the same place it
+   is read). `pfx` keeps the jump anchors distinct between the two hosts. */
+function upDayParts(uid, date, evs, own, pfx){
+  const u = U(uid), isToday = date===TODAY;
+  const byTask = upByTask(evs);
+  const d = upPersonDay(uid, date, byTask);
+  const first = u ? u.name.split(" ")[0] : "them";
+  const their = own ? "your" : "their";
+  const dayWord = isToday ? "so far today" : "on "+fmtDate(date);
+  const dayCap  = isToday ? "today" : "on "+fmtDate(date);
+  /* the buttons that move a task, for the person's own screen only */
+  const acts = t => { if(!own) return "";
+    const b = (stage, cls, lbl) => `<button type="button" class="act ${cls}" data-move="${esc(stage)}" data-task="${esc(t.id)}">${lbl}</button>`;
+    const parts = t.done ? [b(STAGE_WIP, "", "↩ Reopen")]
+      : t.stage===STAGE_PAUSE ? [b(STAGE_WIP, "", "▶ Resume"), b(STAGE_DONE, "done", "✓ Done")]
+      : t.stage===STAGE_START ? [b(STAGE_WIP, "", "▶ Start working"), b(STAGE_PAUSE, "pause", "⏸️ Pause"), b(STAGE_DONE, "done", "✓ Done")]
+      : [b(STAGE_PAUSE, "pause", "⏸️ Pause"), b(STAGE_DONE, "done", "✓ Done")];
+    parts.push(`<button type="button" class="act" data-note="${esc(t.id)}">💬 Note</button>`);
+    return `<div class="md-acts">${parts.join("")}</div>
+      <div class="md-note hidden" data-notebox="${esc(t.id)}"><input maxlength="400" placeholder="Add a progress note…">
+        <button type="button" class="btn sm primary" data-noteadd="${esc(t.id)}">Add</button></div>`; };
+  const row = (t, tm, extra="") => { const p = PIPES.find(x=>x.id===t.pipe);
+    return `<div class="upl-row ${t.done?"done-row":""}" data-upltask="${esc(t.id)}">
+      <span class="tm">${esc(tm)}</span>
+      <div class="mid"><div class="t">${esc(t.title)}</div>
+        ${t.stage===STAGE_PAUSE?`<div class="s" style="color:#8a6206">⏸️ ${esc(t.pauseReason||"no reason given")}</div>`:""}
+        ${extra?`<div class="s">${extra}</div>`:""}
+        <div class="meta">${t.done?"":`<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>`}
+          ${prChip(t.pr)}${dueChip(t)}${p?`<span class="bd">${esc(p.name)}</span>`:""}</div>
+        ${acts(t)}
+      </div></div>`; };
+  const by = t => t.createdBy && t.createdBy!==uid ? ` · by ${esc(U(t.createdBy)?.name||"someone")}` : "";
+  const sec = (no, title, sub, body, id, extraHead="") => `<div class="upl-sec" id="${pfx}${id}">
+    <div class="sh"><span class="no">${no}</span><h3>${title}</h3><span class="sub">${sub}</span>${extraHead}</div>${body}</div>`;
+  const empty = s => `<div class="upl-empty">${s}</div>`;
+
+  /* 1 · logged */
+  const logForm = own && isToday ? `<form class="md-logform" id="mdLogForm">
+      <select id="mdLogCat">${activeCats().map(c=>`<option value="${c.id}">${c.ic} ${esc(c.name)}</option>`).join("")}</select>
+      <input id="mdLogNote" maxlength="400" required placeholder="Log an activity — e.g. Visited Ward 12 collection point, met the supervisor…">
+      <button class="btn sm primary" type="submit">Add to today's log</button></form>` : "";
+  const loggedBody = (d.logged.length ? d.logged.map(t=>row(t, upTime(t.createdAt),
+      [t.createdBy && t.createdBy!==uid ? `Logged by ${esc(U(t.createdBy)?.name||"someone")}` : "",
+       t.done&&t.doneOn===date ? `<b style="color:var(--good-text)">closed the same day${t.closedAt?` at ${esc(upTime(t.closedAt))}`:""}</b>` : ""
+      ].filter(Boolean).join(" · "))).join("")
+    : empty(own ? `You have not logged a task ${esc(dayCap)}.${isToday?" Use <b>New task</b> at the top to put one on the board.":""}`
+                : `No task was logged for ${esc(first)} ${esc(dayCap)}.`))
+    + (d.notes.length ? `<div class="upl-sub">Activity notes in the Daily Log (${d.notes.length})</div>
+        ${d.notes.map(l=>{ const c=catOf(l.cat); return `<div class="upl-note"><div class="ic">${c.ic}</div>
+          <div style="min-width:0"><div class="c">${esc(c.name)}</div><div>${esc(l.note)}</div></div></div>`;}).join("")}` : "")
+    + logForm;
+
+  /* 2 · updated */
+  const updBody = d.updated.length
+    ? `<div class="upl-cards">${d.updated.map(t=>upCard(t, byTask.get(t.id)||[], uid, dayWord, acts(t))).join("")}</div>`
+    : empty(`Nothing moved ${esc(dayCap)} — no stage change, pause, due date or note on any of ${their} tasks.`);
+  const updN = d.updated.reduce((k,t)=>k+(byTask.get(t.id)||[]).length, 0);
+
+  /* 3 · open: overdue, due today, pending */
+  const sinceTxt = t => { const n = daysInStage(t); return n==null ? "" : ` · ${n===0?`in ${esc(t.stage)} since today`:`${n} day${n===1?"":"s"} in ${esc(t.stage)}`}`; };
+  const loggedOn = t => taskDay(t) ? `Logged ${esc(taskDay(t)===TODAY ? "today" : fmtDate(taskDay(t)))}` : "Logged earlier";
+  const late = t => Math.round((todayD - new Date(t.due+"T00:00:00"))/DAY);
+  const openBody = d.open.length ? `
+    ${d.overdue.length ? `<div class="upl-sub bad">Overdue (${d.overdue.length})</div>${d.overdue.map(t=>row(t, "⚠ "+fmtDate(t.due),
+        `Due ${esc(fmtDate(t.due))} — ${late(t)} day${late(t)===1?"":"s"} late${sinceTxt(t)}`)).join("")}` : ""}
+    ${d.dueToday.length ? `<div class="upl-sub">Due today (${d.dueToday.length})</div>${d.dueToday.map(t=>row(t, "● today", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}
+    ${d.pending.length ? `<div class="upl-sub">Pending (${d.pending.length})</div>${d.pending.map(t=>row(t, t.due?fmtDate(t.due):"no date", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}`
+    : empty(`Nothing open — every task on ${their} board is done.`);
+
+  /* 4 · closed */
+  const closedBody = d.closed.length ? d.closed.map(t=>row(t, t.closedAt?upTime(t.closedAt):"—",
+      `Logged ${esc(taskDay(t)===date ? upTime(t.createdAt) : (taskDay(t)?fmtDate(taskDay(t)):"earlier"))}${by(t)}${
+        taskDay(t)===date ? ` <span class="chip sameday">✓ Logged &amp; closed ${esc(isToday?"today":"same day")}</span>` : ""}`)).join("")
+    : empty(`Nothing was marked done ${esc(dayCap)}.`);
+
+  const jump = (id, n, lbl) => `<button type="button" data-upljump="${pfx}${id}"><b>${n}</b> ${lbl}</button>`;
+  const tiles = `<div class="upl-tiles">
+      <div class="card tile"><div class="lbl">Logged ${esc(isToday?"today":"that day")}</div><div class="val">${d.logged.length}</div>
+        <div class="delta">${d.logged.length?`${d.logged.filter(t=>t.done&&t.doneOn===date).length} already closed`:"no new task"}</div></div>
+      <div class="card tile"><div class="lbl">Updates</div><div class="val">${updN}</div>
+        <div class="delta">on ${d.updated.length} task${d.updated.length===1?"":"s"}</div></div>
+      <div class="card tile"><div class="lbl">Overdue / pending</div>
+        <div class="val"><span style="${d.overdue.length?"color:var(--critical)":""}">${d.overdue.length}</span><span style="font-size:14px;color:var(--muted)"> / ${d.open.length}</span></div>
+        <div class="delta">${d.open.length?`${d.open.length} open${d.paused.length?` · ${d.paused.length} paused`:""}`:"nothing open"}</div></div>
+      <div class="card tile"><div class="lbl">Closed ${esc(isToday?"today":"that day")}</div>
+        <div class="val" style="${d.closed.length?"color:var(--good)":""}">${d.closed.length}</div>
+        <div class="delta">${d.closed.length?`${d.sameDay.length} logged &amp; closed same day`:"nothing finished"}</div></div>
+    </div>`;
+  const jumps = `<div class="upl-jump">
+      ${jump("Logged", d.logged.length, isToday?"Today's log":"Logged")}
+      ${jump("Updated", updN, "Updates")}
+      ${jump("Open", d.open.length, "Overdue / pending")}
+      ${jump("Closed", d.closed.length, isToday?"Closed today":"Closed")}
+    </div>`;
+  const sections = `
+    ${sec(1, isToday?"Today's log":"Logged "+esc(fmtDate(date)), `${d.logged.length} task${d.logged.length===1?"":"s"} put on the board ${esc(dayCap)}`, loggedBody, "Logged")}
+    ${sec(2, "Updates", `${updN} change${updN===1?"":"s"} ${esc(dayWord)} — stage moves, pauses, due dates, priority, notes`, updBody, "Updated")}
+    ${sec(3, "Overdue / pending", `${d.open.length} open task${d.open.length===1?"":"s"}${isToday?"":" as they stand now"} — overdue first`, openBody, "Open")}
+    ${sec(4, isToday?"Closed today":"Closed "+esc(fmtDate(date)), `${d.closed.length} marked done${d.closed.length?` · ${d.sameDay.length} logged and closed the same day`:""}`, closedBody, "Closed")}`;
+  return {d, updN, tiles, jumps, sections};
+}
+
 function upLayerPaint(){
   const uid = state.upWho, u = U(uid), dr = $("#drawer");
   if(!uid || !u){ closeDrawer(); return; }
@@ -3454,83 +3606,8 @@ function upLayerPaint(){
     dr.innerHTML = `${head}</div><div class="upl-body"><div style="color:var(--muted);font-size:13px;padding:18px 0">Loading ${esc(fmtDate(date))}…</div></div>`;
     upLayerWire(); return;
   }
-  const d = upPersonDay(uid, date, upByTask(evs));
-  const dayWord = isToday ? "so far today" : "on "+fmtDate(date);
-  const dayCap  = isToday ? "today" : "on "+fmtDate(date);
-  const row = (t, tm, extra="") => { const p = PIPES.find(x=>x.id===t.pipe);
-    return `<div class="upl-row ${t.done?"done-row":""}" data-upltask="${esc(t.id)}">
-      <span class="tm">${esc(tm)}</span>
-      <div class="mid"><div class="t">${esc(t.title)}</div>
-        ${t.stage===STAGE_PAUSE?`<div class="s" style="color:#8a6206">⏸ ${esc(t.pauseReason||"no reason given")}</div>`:""}
-        ${extra?`<div class="s">${extra}</div>`:""}
-        <div class="meta">${t.done?"":`<span class="stage-pill ${esc(t.stage.replace(/\s/g,""))}">${esc(t.stage)}</span>`}
-          ${prChip(t.pr)}${dueChip(t)}${p?`<span class="bd">${esc(p.name)}</span>`:""}</div>
-      </div></div>`; };
-  const by = t => t.createdBy && t.createdBy!==uid ? ` · by ${esc(U(t.createdBy)?.name||"someone")}` : "";
-  const sec = (no, title, sub, body, id) => `<div class="upl-sec" id="${id}">
-    <div class="sh"><span class="no">${no}</span><h3>${title}</h3><span class="sub">${sub}</span></div>${body}</div>`;
-  const empty = s => `<div class="upl-empty">${s}</div>`;
-
-  /* 1 · logged */
-  const loggedBody = (d.logged.length ? d.logged.map(t=>row(t, upTime(t.createdAt),
-      [t.createdBy && t.createdBy!==uid ? `Logged by ${esc(U(t.createdBy)?.name||"someone")}` : "",
-       t.done&&t.doneOn===date ? `<b style="color:var(--good-text)">closed the same day${t.closedAt?` at ${esc(upTime(t.closedAt))}`:""}</b>` : ""
-      ].filter(Boolean).join(" · "))).join("")
-    : empty(`No task was logged for ${esc(u.name.split(" ")[0])} ${esc(dayCap)}.`))
-    + (d.notes.length ? `<div class="upl-sub">Activity notes in the Daily Log (${d.notes.length})</div>
-        ${d.notes.map(l=>{ const c=catOf(l.cat); return `<div class="upl-note"><div class="ic">${c.ic}</div>
-          <div style="min-width:0"><div class="c">${esc(c.name)}</div><div>${esc(l.note)}</div></div></div>`;}).join("")}` : "");
-
-  /* 2 · updated */
-  const byTask = upByTask(evs);
-  const updBody = d.updated.length
-    ? `<div class="upl-cards">${d.updated.map(t=>upCard(t, byTask.get(t.id)||[], uid, dayWord)).join("")}</div>`
-    : empty(`Nothing moved ${esc(dayCap)} — no stage change, pause, due date or note on any of their tasks.`);
-  const updN = d.updated.reduce((k,t)=>k+(byTask.get(t.id)||[]).length, 0);
-
-  /* 3 · open: overdue, due today, pending */
-  const sinceTxt = t => { const n = daysInStage(t); return n==null ? "" : ` · ${n===0?`in ${esc(t.stage)} since today`:`${n} day${n===1?"":"s"} in ${esc(t.stage)}`}`; };
-  const loggedOn = t => taskDay(t) ? `Logged ${esc(taskDay(t)===TODAY ? "today" : fmtDate(taskDay(t)))}` : "Logged earlier";
-  const openBody = d.open.length ? `
-    ${d.overdue.length ? `<div class="upl-sub bad">Overdue (${d.overdue.length})</div>${d.overdue.map(t=>row(t, "⚠ "+fmtDate(t.due),
-        `Due ${esc(fmtDate(t.due))} — ${Math.round((todayD - new Date(t.due+"T00:00:00"))/DAY)} day${Math.round((todayD - new Date(t.due+"T00:00:00"))/DAY)===1?"":"s"} late${sinceTxt(t)}`)).join("")}` : ""}
-    ${d.dueToday.length ? `<div class="upl-sub">Due today (${d.dueToday.length})</div>${d.dueToday.map(t=>row(t, "● today", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}
-    ${d.pending.length ? `<div class="upl-sub">Pending (${d.pending.length})</div>${d.pending.map(t=>row(t, t.due?fmtDate(t.due):"no date", `${loggedOn(t)}${sinceTxt(t)}`)).join("")}` : ""}`
-    : empty("Nothing open — every task on their board is done.");
-
-  /* 4 · closed */
-  const closedBody = d.closed.length ? d.closed.map(t=>row(t, t.closedAt?upTime(t.closedAt):"—",
-      `Logged ${esc(taskDay(t)===date ? upTime(t.createdAt) : (taskDay(t)?fmtDate(taskDay(t)):"earlier"))}${by(t)}${
-        taskDay(t)===date ? ` <span class="chip sameday">✓ Logged &amp; closed ${esc(isToday?"today":"same day")}</span>` : ""}`)).join("")
-    : empty(`Nothing was marked done ${esc(dayCap)}.`);
-
-  const jump = (id, n, lbl) => `<button type="button" data-upljump="${id}"><b>${n}</b> ${lbl}</button>`;
-  dr.innerHTML = `${head}
-    <div class="upl-tiles">
-      <div class="card tile"><div class="lbl">Logged ${esc(isToday?"today":"that day")}</div><div class="val">${d.logged.length}</div>
-        <div class="delta">${d.logged.length?`${d.logged.filter(t=>t.done&&t.doneOn===date).length} already closed`:"no new task"}</div></div>
-      <div class="card tile"><div class="lbl">Updates</div><div class="val">${updN}</div>
-        <div class="delta">on ${d.updated.length} task${d.updated.length===1?"":"s"}</div></div>
-      <div class="card tile"><div class="lbl">Overdue / pending</div>
-        <div class="val"><span style="${d.overdue.length?"color:var(--critical)":""}">${d.overdue.length}</span><span style="font-size:14px;color:var(--muted)"> / ${d.open.length}</span></div>
-        <div class="delta">${d.open.length?`${d.open.length} open${d.paused.length?` · ${d.paused.length} paused`:""}`:"nothing open"}</div></div>
-      <div class="card tile"><div class="lbl">Closed ${esc(isToday?"today":"that day")}</div>
-        <div class="val" style="${d.closed.length?"color:var(--good)":""}">${d.closed.length}</div>
-        <div class="delta">${d.closed.length?`${d.sameDay.length} logged &amp; closed same day`:"nothing finished"}</div></div>
-    </div>
-    <div class="upl-jump">
-      ${jump("uplLogged", d.logged.length, isToday?"Today's log":"Logged")}
-      ${jump("uplUpdated", updN, "Updates")}
-      ${jump("uplOpen", d.open.length, "Overdue / pending")}
-      ${jump("uplClosed", d.closed.length, isToday?"Closed today":"Closed")}
-    </div>
-  </div>
-  <div class="upl-body">
-    ${sec(1, isToday?"Today's log":"Logged "+esc(fmtDate(date)), `${d.logged.length} task${d.logged.length===1?"":"s"} put on the board ${esc(dayCap)}`, loggedBody, "uplLogged")}
-    ${sec(2, "Updates", `${updN} change${updN===1?"":"s"} ${esc(dayWord)} — stage moves, pauses, due dates, priority, notes`, updBody, "uplUpdated")}
-    ${sec(3, "Overdue / pending", `${d.open.length} open task${d.open.length===1?"":"s"}${isToday?"":" as they stand now"} — overdue first`, openBody, "uplOpen")}
-    ${sec(4, isToday?"Closed today":"Closed "+esc(fmtDate(date)), `${d.closed.length} marked done${d.closed.length?` · ${d.sameDay.length} logged and closed the same day`:""}`, closedBody, "uplClosed")}
-  </div>`;
+  const parts = upDayParts(uid, date, evs, false, "upl");
+  dr.innerHTML = `${head}${parts.tiles}${parts.jumps}</div><div class="upl-body">${parts.sections}</div>`;
   upLayerWire();
   const body = dr.querySelector(".upl-body"); if(body && keep) body.scrollTop = keep;
 }
@@ -3547,6 +3624,132 @@ function upLayerWire(){
     const el = dr.querySelector("#"+b.dataset.upljump); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); }));
   /* a task opens on top of the layer and the layer is still there when it closes */
   dr.querySelectorAll("[data-upltask]").forEach(el=>el.addEventListener("click", ()=>openTaskModal(el.dataset.upltask)));
+}
+
+/* ================= My Day — the same four lists, for yourself =================
+   Every person gets this screen, team members included. It is the Daily
+   Update layer turned inward: what you logged, what you moved, what is
+   overdue or pending, what you closed - and the buttons to change it right
+   there: Start working / Pause / Done / Reopen on each task, a note box, and
+   the activity-log line. Everything it writes goes through the same calls the
+   board and the task form use, so the history, the manager's Daily Update and
+   the notifications all see it the same way. */
+let mdToken = 0;
+function mdSet(d){ if(!d) return; state.mdDate = d > TODAY ? TODAY : d; renderMyDay(); }
+function mdGo(step){
+  const base = new Date((state.mdDate||TODAY)+"T00:00:00");
+  mdSet(iso(new Date(base.getTime()+step*DAY)));
+}
+function renderMyDay(){
+  if(!state.mdDate) state.mdDate = TODAY;
+  const date = state.mdDate, isToday = date===TODAY;
+  $("#view").innerHTML = `
+  <div class="day-bar">
+    <button class="dnav" id="mdPrev" title="Previous day" aria-label="Previous day">‹</button>
+    <div class="dttl">${esc(fmtDateLong(date))}<small>${esc(upDayWord(date))}</small></div>
+    <button class="dnav" id="mdNext" title="Next day" aria-label="Next day" ${isToday?"disabled":""}>›</button>
+    ${isToday?"":`<button class="btn sm" id="mdToday">Jump to today</button>`}
+    <div class="spacer"></div>
+    <label style="font-size:12px;color:var(--muted)">Pick a day
+      <input type="date" id="mdPick" value="${date}" max="${TODAY}"></label>
+  </div>
+  <div id="mdBody" class="md-wrap"></div>`;
+  $("#mdPrev").addEventListener("click", ()=>mdGo(-1));
+  $("#mdNext").addEventListener("click", ()=>mdGo(1));
+  const tb = $("#mdToday"); if(tb) tb.addEventListener("click", ()=>mdSet(TODAY));
+  $("#mdPick").addEventListener("change", e=>mdSet(e.target.value));
+  myDayFill(date);
+}
+async function myDayFill(date){
+  const host = $("#mdBody"); if(!host) return;
+  const my = ++mdToken;
+  if(!UPCACHE[date])
+    host.innerHTML = `<div class="card card-pad" style="color:var(--muted); font-size:13px">Loading ${esc(fmtDate(date))}…</div>`;
+  let evs;
+  try{ evs = await loadDayEvents(date); }
+  catch(e){
+    if(my!==mdToken || state.view!=="myday") return;
+    console.error(e);
+    host.innerHTML = `<div class="card card-pad"><b style="font-size:14px">Could not load that day.</b>
+      <div style="color:var(--muted); font-size:13px; margin-top:6px">${esc(e.message||String(e))}</div></div>`;
+    return;
+  }
+  if(my!==mdToken || state.view!=="myday") return;
+  /* A live change repaints this screen a moment after your own move lands.
+     Anything half-typed - a note box that is open, the activity line - is
+     carried across the repaint, so the screen never eats your words. */
+  const keep = window.scrollY;
+  const openNotes = [...host.querySelectorAll("[data-notebox]:not(.hidden)")].map(b=>{
+    const i = b.querySelector("input");
+    return {sec:b.closest(".upl-sec")?.id, id:b.dataset.notebox, val:i.value, focus:document.activeElement===i}; });
+  const logInp = $("#mdLogNote");
+  const logKeep = logInp ? {val:logInp.value, focus:document.activeElement===logInp, cat:$("#mdLogCat")?.value} : null;
+  const parts = upDayParts(state.me.id, date, evs, true, "md");
+  host.innerHTML = `${parts.tiles}${parts.jumps}${parts.sections}`;
+  myDayWire(date);
+  openNotes.forEach(n=>{ const b = host.querySelector(`${n.sec?"#"+n.sec+" ":""}[data-notebox="${n.id}"]`); if(!b) return;
+    b.classList.remove("hidden"); const i = b.querySelector("input"); i.value = n.val;
+    if(n.focus){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); } });
+  if(logKeep && (logKeep.val || logKeep.focus)){ const i = $("#mdLogNote"), c = $("#mdLogCat");
+    if(i){ i.value = logKeep.val; if(c && logKeep.cat) c.value = logKeep.cat;
+      if(logKeep.focus){ i.focus(); i.setSelectionRange(i.value.length, i.value.length); } } }
+  if(keep) window.scrollTo(0, keep);
+}
+/* one click handler for the whole screen: buttons act, anything else on a
+   row opens the task. Note boxes and the log form never open the task. */
+function myDayWire(date){
+  const host = $("#mdBody"); if(!host) return;
+  const refresh = () => { delete UPCACHE[date]; if(state.view==="myday") myDayFill(date); };
+  host.addEventListener("click", async e=>{
+    const jump = e.target.closest("[data-upljump]");
+    if(jump){ const el = host.querySelector("#"+jump.dataset.upljump); if(el) el.scrollIntoView({behavior:"smooth", block:"start"}); return; }
+    const mv = e.target.closest("[data-move]");
+    if(mv){ e.stopPropagation();
+      const t = TASKS.find(x=>x.id===mv.dataset.task); if(!t) return;
+      await moveTask(t, mv.dataset.move);       // asks for a pause reason itself; renders optimistically
+      refresh(); return; }
+    /* the same task can sit in two lists (logged today AND pending, say), so
+       the note box is always the one beside the button that was pressed */
+    const nb = e.target.closest("[data-note]");
+    if(nb){ e.stopPropagation();
+      const box = nb.closest("[data-upltask]")?.querySelector("[data-notebox]"); if(!box) return;
+      box.classList.toggle("hidden"); if(!box.classList.contains("hidden")) box.querySelector("input").focus(); return; }
+    const add = e.target.closest("[data-noteadd]");
+    if(add){ e.stopPropagation(); await mdSendNote(add.closest("[data-notebox]"), refresh); return; }
+    if(e.target.closest(".md-note, .md-logform")){ e.stopPropagation(); return; }
+    const rowEl = e.target.closest("[data-upltask]");
+    if(rowEl) openTaskModal(rowEl.dataset.upltask);
+  });
+  host.addEventListener("keydown", e=>{
+    if(e.key!=="Enter") return;
+    const box = e.target.closest(".md-note"); if(!box) return;
+    e.preventDefault(); mdSendNote(box, refresh);
+  });
+  const lf = $("#mdLogForm"); if(lf) lf.addEventListener("submit", async e=>{
+    e.preventDefault();
+    const note = $("#mdLogNote").value.trim(); if(!note) return;
+    const btn = lf.querySelector("button[type=submit]"); btn.disabled = true;
+    const saved = await guard(()=>DB.ins("dat_logs",{user_id:state.me.id, log_date:TODAY,
+      category_id:$("#mdLogCat").value, note}));
+    btn.disabled = false;
+    if(!saved) return;
+    LOGS.push(mapLog(saved));
+    addEvent("log","logged an activity");
+    toast("Activity logged ✓");
+    myDayFill(date);
+  });
+}
+async function mdSendNote(box, refresh){
+  if(!box) return;
+  const taskId = box.dataset.notebox;
+  const inp = box.querySelector("input"), btn = box.querySelector("button");
+  const note = inp.value.trim(); if(!note){ inp.focus(); return; }
+  btn.disabled = true;
+  const row = await guard(()=>DB.ins("dat_task_events", {task_id:taskId, actor:state.me.id, kind:"comment", note}));
+  btn.disabled = false;
+  if(!row) return;
+  toast("Note added ✓");
+  refresh();
 }
 
 async function upFill(date){
@@ -3599,9 +3802,52 @@ function renderDailyUp(){
 }
 
 /* ================= daily tasks (the board) ================= */
+function boardOwnerFilter(pipes){
+  const owners = [...new Set(pipes.map(p=>p.createdBy||""))];
+  const selected = new Set(state.pipeOwners||[]);
+  const names = owners.map(id=>id ? U(id)?.name||"Unknown owner" : "Unknown owner");
+  const selectedOwners=owners.filter(id=>selected.has(id===""?null:id));
+  const summary=selectedOwners.length===owners.length ? "All board owners"
+    : selectedOwners.length===1 && selectedOwners[0]===state.me.id ? "My boards"
+    : selectedOwners.length ? `${selectedOwners.length} selected` : "No owners selected";
+  return `<details class="board-owner-filter" id="boardOwnerFilter" ${state.pipeOwnerFilterOpen?"open":""}>
+    <summary class="btn sm">Board owners · ${esc(summary)}</summary>
+    <div class="board-owner-menu">
+      <div style="display:flex;gap:8px;padding:4px 8px 7px;border-bottom:1px solid var(--grid);margin-bottom:4px">
+        <button type="button" class="mini-btn" data-owner-filter-action="all">Select all</button>
+        <button type="button" class="mini-btn" data-owner-filter-action="mine">My boards</button>
+      </div>
+      ${owners.map((id,i)=>`<label class="board-owner-option"><input type="checkbox" data-board-owner="${esc(id)}" ${selected.has(id===""?null:id)?"checked":""}>${esc(names[i])}${id===state.me.id?" (you)":""}</label>`).join("")}
+    </div>
+  </details>`;
+}
+function wireBoardOwnerFilter(allPipes){
+  const details=$("#boardOwnerFilter");
+  if(!details) return;
+  details.addEventListener("toggle",()=>{ state.pipeOwnerFilterOpen=details.open; });
+  const apply = owners=>{
+    state.pipeOwners=owners;
+    state.pipeOwnerFilterOpen=true;
+    const filtered=allPipes.filter(p=>owners.includes(p.createdBy||null));
+    if(!filtered.some(p=>p.id===state.pipe)) state.pipe=filtered[0]?.id||null;
+    renderPipelines();
+    const reopened=$("#boardOwnerFilter"); if(reopened) reopened.open=true;
+    state.pipeOwnerFilterOpen=true;
+  };
+  details.querySelectorAll("[data-board-owner]").forEach(input=>input.addEventListener("change",()=>{
+    const owners=[...details.querySelectorAll("[data-board-owner]:checked")].map(item=>item.dataset.boardOwner||null);
+    apply(owners);
+  }));
+  details.querySelectorAll("[data-owner-filter-action]").forEach(button=>button.addEventListener("click",()=>{
+    const owners=button.dataset.ownerFilterAction==="mine" ? [state.me.id]
+      : [...new Set(allPipes.map(p=>p.createdBy||null))];
+    apply(owners);
+  }));
+}
 function renderPipelines(){
-  const me=state.me, pipes=visiblePipes(me);
-  if(!pipes.length){
+  const me=state.me, allPipes=visiblePipes(me), manager=me.level==="manager";
+  const pipes=manager ? allPipes.filter(p=>(state.pipeOwners||[me.id]).includes(p.createdBy||null)) : allPipes;
+  if(!allPipes.length){
     $("#view").innerHTML = `<div class="card card-pad" style="text-align:center;padding:44px 24px">
       <div style="font-size:34px;margin-bottom:8px">\u{1F5C2}\uFE0F</div>
       <h3 style="font-size:16px">No task boards yet</h3>
@@ -3611,6 +3857,14 @@ function renderPipelines(){
       <button class="btn primary" data-act="newPipe" style="margin:0 auto">\uFF0B Create a task board</button>
     </div>`;
     wireCommon(); return; }
+  if(manager && !pipes.length){
+    $("#view").innerHTML = `<div class="board-head">${boardOwnerFilter(allPipes)}<div class="grow"></div></div>
+      <div class="card card-pad" style="text-align:center;padding:38px 24px">
+        <div style="font-size:30px;margin-bottom:8px">🗂️</div><h3 style="font-size:16px">No boards selected</h3>
+        <div style="color:var(--ink2);font-size:13.5px;margin:6px auto 0;max-width:430px">Choose one or more board owners in the filter to view their boards. Your view starts with your own boards.</div>
+      </div>`;
+    wireBoardOwnerFilter(allPipes); wireCommon(); return;
+  }
   if(!pipes.find(p=>p.id===state.pipe)) state.pipe=pipes[0].id;
   const pipe = pipes.find(p=>p.id===state.pipe);
   const people = liveUsers().filter(u=>visibleUserIds(me).includes(u.id));
@@ -3637,6 +3891,7 @@ function renderPipelines(){
         ${byDept[dp].map(p=>`<option value="${p.id}" ${p.id===state.pipe?"selected":""}>${esc(p.name)} — ${openN(p.id)} open</option>`).join("")}
       </optgroup>`).join("")}
     </select>
+    ${manager?boardOwnerFilter(allPipes):""}
     <div class="grow"></div>
     <button class="btn sm" id="fToggle">⚙ Filters${activeFilters?` <span class="cnt">${activeFilters}</span>`:""}</button>
     ${canEditPipe(me,pipe)?`<button class="btn sm" data-act="editPipe">✏️ Edit board</button>`:""}
@@ -3669,6 +3924,7 @@ function renderPipelines(){
   </div>`;
   const pick=$("#pipePick");
   if(pick) pick.addEventListener("change",()=>{ state.pipe=pick.value; renderPipelines(); });
+  if(manager) wireBoardOwnerFilter(allPipes);
   const ft=$("#fToggle");
   if(ft) ft.addEventListener("click",()=>{ state.showFilters=!state.showFilters; renderPipelines(); });
   const fc=$("#fClear");
@@ -5993,6 +6249,7 @@ $("#quickAdd").addEventListener("click",()=>{
   else if(state.view==="documents"){ const f=$("#docFile"); if(f) f.click(); }
   else if(state.view==="legal"){ openLegalModal(null); }
   else if(state.view==="tenders"){ openTenderModal(null); }
+  else if(state.view==="myday"){ openTaskModal(null,{assignee:state.me.id}); }
   else openTaskModal(null,{});
 });
 /* Escape peels one layer at a time: a task opened from inside the person layer
