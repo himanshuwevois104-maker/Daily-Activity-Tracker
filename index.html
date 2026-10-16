@@ -5696,17 +5696,28 @@ function openTaskModal(taskId, preset={}){
       `Open <b>Daily Tasks</b> and create one, then come back and add tasks to it.`);
     return;
   }
-  const pipeId = t?.pipe || preset.pipe || state.pipe || pipes[0]?.id;
-  const pipe = PIPES.find(p=>p.id===pipeId) || pipes[0];
   const people = assignableUsers(me);
+  const initialAssignee = t?.assignee || preset.assignee || me.id;
+  const ownPipesFor = assigneeId => pipes.filter(p=>p.createdBy===assigneeId);
+  const initialPipes = ownPipesFor(initialAssignee);
+  const currentPipe = t ? pipes.find(p=>p.id===t.pipe) : null;
+  /* Keep an existing task's board visible until the assignee is changed, so
+     opening and saving an unrelated edit cannot silently move the task. */
+  const firstPipeChoices = t && currentPipe && !initialPipes.some(p=>p.id===currentPipe.id)
+    ? [currentPipe, ...initialPipes] : initialPipes;
+  const requestedPipeId = t?.pipe || preset.pipe || state.pipe;
+  const initialPipeId = firstPipeChoices.find(p=>p.id===requestedPipeId)?.id
+    || firstPipeChoices[0]?.id || "";
+  const pipeLabel = p => p.createdBy===initialAssignee ? p.name : `${p.name} · current task board`;
   modal(`<div class="modal${t?" wide":""}">
     <h3>${t?"Edit task":"New task"}</h3>
     <div class="msub">${t?"Update details, move stage, or reassign.":"Add a task to a board."}</div>
     <form id="taskForm" class="f-grid">
       <div class="field"><label>Title</label><input id="tTitle" required maxlength="120" value="${esc(t?.title||"")}" placeholder="e.g. Follow up with Kota South on revised pricing"></div>
       <div class="f-grid f-2">
-        <div class="field"><label>Board</label><select id="tPipe">
-          ${pipes.map(p=>`<option value="${p.id}" ${p.id===pipeId?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>Board</label><select id="tPipe" ${initialPipeId?"":"required"}>
+          ${firstPipeChoices.length?firstPipeChoices.map(p=>`<option value="${p.id}" ${p.id===initialPipeId?"selected":""}>${esc(pipeLabel(p))}</option>`).join(""):`<option value="">No board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}</select>
+          <div id="tPipeHint" style="font-size:11.5px;color:var(--muted);margin-top:5px">Only boards owned by the selected assignee are shown.</div></div>
         <div class="field"><label>Stage</label><select id="tStage">
           ${STAGES.map(s=>`<option ${((t?.stage||preset.stage||STAGE_START)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
       </div>
@@ -5736,6 +5747,22 @@ function openTaskModal(taskId, preset={}){
     <div id="tlHost"></div>
   </div>`);
   if(t) mountTimeline("#tlHost", t, true);
+  const whoPick=$("#tWho"), boardPick=$("#tPipe"), boardHint=$("#tPipeHint");
+  whoPick.addEventListener("change",()=>{
+    const assigneeId=whoPick.value, assigneePipes=ownPipesFor(assigneeId);
+    boardPick.innerHTML=assigneePipes.length
+      ? assigneePipes.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")
+      : `<option value="">No board owned by ${esc(U(assigneeId)?.name||"this person")}</option>`;
+    boardPick.required=true;
+    if(assigneePipes.length){
+      const preferred=assigneePipes.find(p=>p.id===state.pipe)||assigneePipes[0];
+      boardPick.value=preferred.id;
+      boardHint.textContent="Only boards owned by the selected assignee are shown.";
+    } else {
+      boardPick.value="";
+      boardHint.textContent="Create a task board for this person before assigning a task.";
+    }
+  });
   $("#tStage").addEventListener("change",()=>{
     $("#tPauseWrap").style.display = $("#tStage").value===STAGE_PAUSE ? "block" : "none";
   });
@@ -5751,6 +5778,10 @@ function openTaskModal(taskId, preset={}){
       assignee:$("#tWho").value, pr:$("#tPr").value, due:$("#tDue").value||null,
       desc:$("#tDesc").value.trim(), done:$("#tDone").checked };
     if(!vals.title) return;
+    if(!vals.pipe){
+      openInfoModal("No task board for this person", "Create a task board owned by the selected person, then assign the task to that board.");
+      return;
+    }
     /* ticking done and choosing the Done stage are the same act - keep them in
        step here too, so the screen never disagrees with the database */
     if(vals.done) vals.stage = STAGE_DONE;
@@ -5772,6 +5803,7 @@ function openTaskModal(taskId, preset={}){
       addEvent("move",`created “${vals.title}”${vals.assignee!==me.id?" for "+U(vals.assignee).name:""}`);
       toast("Task created ✓");
     }
+    state.pipe=vals.pipe;
     closeModal(); render();
   });
 }
