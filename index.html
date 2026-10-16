@@ -5700,15 +5700,9 @@ function openTaskModal(taskId, preset={}){
   const initialAssignee = t?.assignee || preset.assignee || me.id;
   const ownPipesFor = assigneeId => pipes.filter(p=>p.createdBy===assigneeId);
   const initialPipes = ownPipesFor(initialAssignee);
-  const currentPipe = t ? pipes.find(p=>p.id===t.pipe) : null;
-  /* Keep an existing task's board visible until the assignee is changed, so
-     opening and saving an unrelated edit cannot silently move the task. */
-  const firstPipeChoices = t && currentPipe && !initialPipes.some(p=>p.id===currentPipe.id)
-    ? [currentPipe, ...initialPipes] : initialPipes;
   const requestedPipeId = t?.pipe || preset.pipe || state.pipe;
-  const initialPipeId = firstPipeChoices.find(p=>p.id===requestedPipeId)?.id
-    || firstPipeChoices[0]?.id || "";
-  const pipeLabel = p => p.createdBy===initialAssignee ? p.name : `${p.name} · current task board`;
+  const matchingInitialPipe = initialPipes.find(p=>p.id===requestedPipeId);
+  const initialPipeId = matchingInitialPipe?.id || (t ? "" : initialPipes[0]?.id || "");
   modal(`<div class="modal${t?" wide":""}">
     <h3>${t?"Edit task":"New task"}</h3>
     <div class="msub">${t?"Update details, move stage, or reassign.":"Add a task to a board."}</div>
@@ -5716,7 +5710,7 @@ function openTaskModal(taskId, preset={}){
       <div class="field"><label>Title</label><input id="tTitle" required maxlength="120" value="${esc(t?.title||"")}" placeholder="e.g. Follow up with Kota South on revised pricing"></div>
       <div class="f-grid f-2">
         <div class="field"><label>Board</label><select id="tPipe" ${initialPipeId?"":"required"}>
-          ${firstPipeChoices.length?firstPipeChoices.map(p=>`<option value="${p.id}" ${p.id===initialPipeId?"selected":""}>${esc(pipeLabel(p))}</option>`).join(""):`<option value="">No board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}</select>
+          ${initialPipes.length?`${initialPipeId?"":`<option value="" selected>Choose a board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}${initialPipes.map(p=>`<option value="${p.id}" ${p.id===initialPipeId?"selected":""}>${esc(p.name)}</option>`).join("")}`:`<option value="">No board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}</select>
           <div id="tPipeHint" style="font-size:11.5px;color:var(--muted);margin-top:5px">Only boards owned by the selected assignee are shown.</div></div>
         <div class="field"><label>Stage</label><select id="tStage">
           ${STAGES.map(s=>`<option ${((t?.stage||preset.stage||STAGE_START)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
