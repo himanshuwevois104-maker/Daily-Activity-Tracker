@@ -2179,8 +2179,8 @@ function teamSummaryCard(){
       <select id="periodSel" style="padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12.5px">
         ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>${v.label}</option>`).join("")}
       </select>
-      <button class="btn sm" id="dlXlsx">⬇ Excel</button>
-      <button class="btn sm" id="dlPdf">⬇ PDF</button></div>
+      <button class="btn sm" id="dlXlsx" title="Whole team in one Excel file — summary, every task, KPIs, plus one sheet per person">⬇ Team Excel</button>
+      <button class="btn sm" id="dlPdf" title="Whole team in one PDF — summary, then every person's review">⬇ Team PDF</button></div>
     ${people.length?`<div style="overflow-x:auto"><table class="simple">
       <thead><tr><th>Person</th><th style="text-align:right">Done</th><th style="text-align:right">Open</th>
         <th style="text-align:right">Paused</th><th style="text-align:right">Overdue</th>
@@ -2787,7 +2787,9 @@ function renderReview(){
           ${people.map(p=>`<option value="${p.id}" ${p.id===u.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select>
         <select id="revPeriod" style="padding:8px 11px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px">
           ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>${v.label}</option>`).join("")}</select>
-        <button class="btn sm" id="revPdf">⬇ PDF</button>
+        <button class="btn sm" id="revPdf" title="This person only">⬇ ${esc(u.name.split(" ")[0])}'s PDF</button>
+        <button class="btn sm primary" id="revTeamPdf" title="Every person below you, one PDF, one page each">⬇ Whole team PDF</button>
+        <button class="btn sm" id="revTeamXlsx" title="Every person below you, one Excel file">⬇ Team Excel</button>
       </div>
     </div>
 
@@ -2854,6 +2856,8 @@ function renderReview(){
   $("#revWho").addEventListener("change",e=>{ state.reviewOf=e.target.value; render(); });
   $("#revPeriod").addEventListener("change",e=>{ state.period=e.target.value; render(); });
   $("#revPdf").addEventListener("click",()=>reviewPdf(u.id));
+  $("#revTeamPdf").addEventListener("click",()=>downloadReport("pdf"));
+  $("#revTeamXlsx").addEventListener("click",()=>downloadReport("xlsx"));
   const sk=$("#revSetKpi"); if(sk) sk.addEventListener("click",()=>openKpiModal(null));
   document.querySelectorAll("[data-revdoc]").forEach(el=>el.addEventListener("click",()=>{
     const d=DOCS.find(x=>x.id===el.dataset.revdoc); if(!d) return;
@@ -2862,17 +2866,10 @@ function renderReview(){
   wireCommon();
 }
 
-/* one person's review, printable — for the appraisal folder or the conversation */
-function reviewPdf(id){
-  const u = U(id), r = reviewFor(id), s = r.s, st = personStatus(s);
-  const ks = targetsFor(id, THIS_MONTH);
-  const rows = r.mine
-    .filter(t=>!t.done || inPeriod(t.doneOn))
-    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const w = window.open("", "_blank");
-  if(!w){ toast("Allow pop-ups for this site to download the PDF."); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
-    <title>Review — ${esc(u.name)} — ${esc(periodLabel())}</title><style>
+/* one person's review, printable — for the appraisal folder or the conversation.
+   The body is a separate function so the whole-team report can print every
+   person's review, one after another, in one go. */
+const REVIEW_CSS = `
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111;padding:26px;line-height:1.45}
     h1{font-size:20px;margin-bottom:2px} .meta{font-size:12px;color:#666;margin-bottom:18px}
     h2{font-size:13.5px;margin:20px 0 8px;padding-bottom:4px;border-bottom:2px solid #111}
@@ -2883,8 +2880,19 @@ function reviewPdf(id){
     table{width:100%;border-collapse:collapse;font-size:10.5px}
     th{text-align:left;background:#f2f2ef;padding:5px 6px;border:1px solid #ddd;font-size:9.5px;text-transform:uppercase}
     td{padding:4px 6px;border:1px solid #e6e6e6;vertical-align:top}
+    tr:nth-child(even) td{background:#fafafa}
+    .person{break-before:page;page-break-before:always}
+    .person:first-of-type{break-before:auto;page-break-before:auto}
+    .none{font-size:11.5px;color:#777;margin:4px 0}
     @page{size:A4;margin:13mm}
-    </style></head><body>
+    @media print{h2{break-after:avoid} tr{break-inside:avoid}}`;
+function reviewSectionHtml(id){
+  const u = U(id), r = reviewFor(id), s = r.s, st = personStatus(s);
+  const ks = targetsFor(id, THIS_MONTH);
+  const rows = r.mine
+    .filter(t=>!t.done || inPeriod(t.doneOn))
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  return `<section class="person">
     <h1>Performance review — ${esc(u.name)}</h1>
     <div class="meta">${esc(titleOf(u))} · ${esc(u.dept)}${u.mgr?` · reports to ${esc(U(u.mgr)?.name||"")}`:""}
       &nbsp;|&nbsp; ${esc(periodLabel())} (${esc(fmtDateLong(periodFrom()))} to ${esc(fmtDateLong(TODAY))})
@@ -2903,18 +2911,33 @@ function reviewPdf(id){
       <tbody>${ks.map(t=>`<tr><td>${esc(kpiOf(t.kpi)?.name||"")}</td><td>${fmtNum(t.target)}</td>
         <td>${fmtNum(t.achieved)}</td><td>${pct(t)}%</td><td>${esc(t.note||"")}</td></tr>`).join("")}</tbody></table>`:""}
     <h2>Tasks in this period</h2>
-    <table><thead><tr><th>Task</th><th>Board</th><th>Stage</th><th>Added</th><th>Due</th><th>Completed</th><th>Working days</th><th>Pause reason</th></tr></thead>
+    ${rows.length?`<table><thead><tr><th>Task</th><th>Board</th><th>Stage</th><th>Added</th><th>Due</th><th>Completed</th><th>Working days</th><th>Pause reason</th></tr></thead>
     <tbody>${rows.map(t=>`<tr>
       <td>${esc(t.title)}</td><td>${esc(PIPES.find(p=>p.id===t.pipe)?.name||"")}</td>
       <td>${esc(t.stage)}</td><td>${t.createdAt?esc(fmtDate(iso(new Date(t.createdAt)))):""}</td>
       <td>${t.due?esc(fmtDate(t.due)):""}</td><td>${t.doneOn?esc(fmtDate(t.doneOn)):""}</td>
       <td>${(t.closedAt&&t.startedAt)?((Math.max(0,(t.closedAt-t.startedAt)-(t.pausedMs||0))/DAY).toFixed(1)):""}</td>
-      <td>${t.stage===STAGE_PAUSE?esc(t.pauseReason||"not given"):""}</td></tr>`).join("")}</tbody></table>
-    </body></html>`);
+      <td>${t.stage===STAGE_PAUSE?esc(t.pauseReason||"not given"):""}</td></tr>`).join("")}</tbody></table>`
+      :`<div class="none">No open tasks and nothing closed in this period.</div>`}
+  </section>`;
+}
+/* open a print window and hand it to the browser's Save as PDF */
+function printHtml(title, css, body){
+  const w = window.open("", "_blank");
+  if(!w){ toast("Allow pop-ups for this site to download the PDF."); return false; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+    <title>${esc(title)}</title><style>${css}</style></head><body>${body}</body></html>`);
   w.document.close();
-  w.onload = () => { w.focus(); w.print(); };
-  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} }, 700);
+  let printed = false;
+  const go = () => { if(printed) return; printed = true; try{ w.focus(); w.print(); }catch(_){} };
+  w.onload = go;
+  setTimeout(go, 700);
   toast("Choose “Save as PDF” in the print box");
+  return true;
+}
+function reviewPdf(id){
+  const u = U(id);
+  printHtml(`Review — ${u.name} — ${periodLabel()}`, REVIEW_CSS, reviewSectionHtml(id));
 }
 
 /* ================= the downloadable report =================
@@ -3030,46 +3053,41 @@ async function downloadReport(kind){
     add(data.daily,   "Paused & blocked");
     add(data.docs,    "Documents");
     add(data.perDay,  "Day by day");
+    /* then one sheet per person - their own tasks for the period - so a
+       manager can hand any one sheet to that person without filtering */
+    const used = new Set(wb.SheetNames.map(n=>n.toLowerCase()));
+    data.people.forEach(u=>{
+      let nm = u.name.replace(/[\\\/\?\*\[\]:]/g," ").trim().slice(0,28) || "Person";
+      let k = nm, i = 2;
+      while(used.has(k.toLowerCase())) k = `${nm.slice(0,25)} ${i++}`;
+      used.add(k.toLowerCase());
+      add(data.tasks.filter(r=>r.Person===u.name).map(({Person, ...r})=>r), k);
+    });
     XLSX.writeFile(wb, base + ".xlsx");
     toast("Report downloaded ✓");
     return;
   }
 
-  /* PDF: a clean printable page, then the browser's own Save as PDF */
+  /* PDF: the whole team in one file — a summary page first, then every
+     person's full review on its own page, so nobody has to be downloaded
+     one at a time from the Review screen. */
   const tbl = (title, rows, cols) => !rows.length ? "" : `
     <h2>${esc(title)}</h2>
     <table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${esc(String(r[c]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  const html = `<!doctype html><html><head><meta charset="utf-8">
-    <title>${base}</title><style>
-      body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111;padding:26px;line-height:1.4}
-      h1{font-size:19px;margin-bottom:2px} .meta{font-size:12px;color:#666;margin-bottom:20px}
-      h2{font-size:14px;margin:22px 0 8px;padding-bottom:4px;border-bottom:2px solid #111}
-      table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px}
-      th{text-align:left;background:#f2f2ef;padding:5px 6px;border:1px solid #ddd;font-size:9.5px;
-        text-transform:uppercase;letter-spacing:.3px}
-      td{padding:4px 6px;border:1px solid #e6e6e6;vertical-align:top}
-      tr:nth-child(even) td{background:#fafafa}
-      @page{size:A4 landscape;margin:12mm}
-      @media print{h2{break-after:avoid} tr{break-inside:avoid}}
-    </style></head><body>
+  const body = `
+    <section class="person">
     <h1>WeVois — team activity report</h1>
     <div class="meta">${esc(data.label)} · ${esc(fmtDateLong(data.from))} to ${esc(fmtDateLong(data.to))}
       &nbsp;|&nbsp; ${data.people.length} people &nbsp;|&nbsp; prepared for ${esc(me.name)} (${esc(titleOf(me))})
       &nbsp;|&nbsp; generated ${esc(new Date().toLocaleString("en-IN"))}</div>
     ${tbl("Summary — one row per person", data.summary,
-      ["Name","Job role","Department","Tasks completed","Still open","In progress","Paused","Not started","Overdue","Avg working days","KPI attainment %","Documents","Last active","Status"])}
-    ${tbl("Tasks", data.tasks, ["Person","Task","Pipeline","Stage","Priority","Due","Done","Completed on","Working days","Paused days"])}
-    ${tbl("KPIs this month", data.kpiRows, ["Person","KPI","Target","Achieved","Attainment %","Set by","Their note"])}
-    ${tbl("Paused &amp; blocked right now", data.daily, ["Person","Task","Board","Paused for (days)","Reason","Due","Priority"])}
-    ${tbl("Documents", data.docs, ["Date","Person","Title","File","Size (KB)"])}
-    </body></html>`;
-  const w = window.open("", "_blank");
-  if(!w){ toast("Allow pop-ups for this site to download the PDF."); return; }
-  w.document.write(html); w.document.close();
-  w.onload = () => { w.focus(); w.print(); };
-  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} }, 700);
-  toast("Choose “Save as PDF” in the print box");
+      ["Name","Job role","Department","Reports to","Tasks completed","Still open","Paused","Overdue","Avg working days","KPI attainment %","Last active","Status"])}
+    ${tbl("Paused & blocked right now", data.daily, ["Person","Task","Board","Paused for (days)","Reason","Due","Priority"])}
+    <div class="none" style="margin-top:14px">Each person's full review follows — one page per person, in the order above.</div>
+    </section>
+    ${data.people.map(u=>reviewSectionHtml(u.id)).join("")}`;
+  printHtml(base, REVIEW_CSS.replace("@page{size:A4;margin:13mm}","@page{size:A4 landscape;margin:12mm}"), body);
 }
 
 /* ================= dashboard ================= */
@@ -3792,12 +3810,19 @@ function renderDailyUp(){
     <div class="spacer"></div>
     <label style="font-size:12px;color:var(--muted)">Pick a day
       <input type="date" id="upPick" value="${date}" max="${TODAY}"></label>
+    <select id="upRepPeriod" title="Period the team report covers" style="padding:7px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12.5px">
+      ${Object.entries(PERIODS).map(([k,v])=>`<option value="${k}" ${state.period===k?"selected":""}>Report: ${v.label}</option>`).join("")}</select>
+    <button class="btn sm" id="upDlXlsx" title="Whole team in one Excel file">⬇ Team Excel</button>
+    <button class="btn sm" id="upDlPdf" title="Whole team in one PDF — summary, then every person's review">⬇ Team PDF</button>
   </div>
   <div id="upBody"></div>`;
   $("#upPrev").addEventListener("click", ()=>upGo(-1));
   $("#upNext").addEventListener("click", ()=>upGo(1));
   const tb = $("#upToday"); if(tb) tb.addEventListener("click", ()=>upSet(TODAY));
   $("#upPick").addEventListener("change", e=>upSet(e.target.value));
+  $("#upRepPeriod").addEventListener("change", e=>{ state.period = e.target.value; });
+  $("#upDlXlsx").addEventListener("click", ()=>downloadReport("xlsx"));
+  $("#upDlPdf").addEventListener("click", ()=>downloadReport("pdf"));
   upFill(date);
 }
 
@@ -5697,27 +5722,46 @@ function openTaskModal(taskId, preset={}){
     return;
   }
   const people = assignableUsers(me);
-  const initialAssignee = t?.assignee || preset.assignee || me.id;
-  const ownPipesFor = assigneeId => pipes.filter(p=>p.createdBy===assigneeId);
+  /* The board list follows the assignee: only boards that person owns are
+     offered, so a manager can never drop work onto somebody else's board.
+     The pool is every board this login loaded (not just visiblePipes) - a VP
+     or the CEO can assign anyone in the company, and that person's boards
+     must show even when they sit in another branch. */
+  const ownPipesFor = assigneeId => PIPES.filter(p=>p.createdBy===assigneeId)
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  /* "+ Add" on someone's board means "a task for the owner of this board" */
+  const presetPipe = preset.pipe ? PIPES.find(p=>p.id===preset.pipe) : null;
+  const presetOwner = presetPipe && people.some(u=>u.id===presetPipe.createdBy) ? presetPipe.createdBy : null;
+  const initialAssignee = t?.assignee || preset.assignee || presetOwner || me.id;
   const initialPipes = ownPipesFor(initialAssignee);
+  /* an older task can sit on a board its assignee does not own - keep that
+     board selectable while editing, so saving a title fix doesn't force a move */
+  const legacyPipe = t && !initialPipes.some(p=>p.id===t.pipe) ? PIPES.find(p=>p.id===t.pipe) : null;
   const requestedPipeId = t?.pipe || preset.pipe || state.pipe;
   const matchingInitialPipe = initialPipes.find(p=>p.id===requestedPipeId);
-  const initialPipeId = matchingInitialPipe?.id || (t ? "" : initialPipes[0]?.id || "");
+  const initialPipeId = legacyPipe ? legacyPipe.id : (matchingInitialPipe?.id || initialPipes[0]?.id || "");
+  const whoName = id => esc(U(id)?.name||"this person");
+  const pipeOpts = (list, sel, legacy) => list.length || legacy
+    ? (legacy?`<option value="${legacy.id}" selected>${esc(legacy.name)} (current board)</option>`:"")
+      + list.map(p=>`<option value="${p.id}" ${p.id===sel?"selected":""}>${esc(p.name)}</option>`).join("")
+    : "";
   modal(`<div class="modal${t?" wide":""}">
     <h3>${t?"Edit task":"New task"}</h3>
     <div class="msub">${t?"Update details, move stage, or reassign.":"Add a task to a board."}</div>
     <form id="taskForm" class="f-grid">
       <div class="field"><label>Title</label><input id="tTitle" required maxlength="120" value="${esc(t?.title||"")}" placeholder="e.g. Follow up with Kota South on revised pricing"></div>
       <div class="f-grid f-2">
-        <div class="field"><label>Board</label><select id="tPipe" ${initialPipeId?"":"required"}>
-          ${initialPipes.length?`${initialPipeId?"":`<option value="" selected>Choose a board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}${initialPipes.map(p=>`<option value="${p.id}" ${p.id===initialPipeId?"selected":""}>${esc(p.name)}</option>`).join("")}`:`<option value="">No board owned by ${esc(U(initialAssignee)?.name||"this person")}</option>`}</select>
-          <div id="tPipeHint" style="font-size:11.5px;color:var(--muted);margin-top:5px">Only boards owned by the selected assignee are shown.</div></div>
-        <div class="field"><label>Stage</label><select id="tStage">
-          ${STAGES.map(s=>`<option ${((t?.stage||preset.stage||STAGE_START)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
+        <div class="field"><label>Assign to</label><select id="tWho">
+          ${people.map(u=>`<option value="${u.id}" ${initialAssignee===u.id?"selected":""}>${esc(u.name)} — ${esc(titleOf(u))}</option>`).join("")}</select></div>
+        <div class="field"><label>Board</label><select id="tPipe" required>
+          ${pipeOpts(initialPipes, initialPipeId, legacyPipe) || `<option value="">No board owned by ${whoName(initialAssignee)}</option>`}</select>
+          <div id="tPipeHint" style="font-size:11.5px;color:${initialPipes.length||legacyPipe?"var(--muted)":"var(--critical)"};margin-top:5px">${initialPipes.length||legacyPipe
+            ? `Showing only ${whoName(initialAssignee)}'s boards.`
+            : `${whoName(initialAssignee)} has no board yet — ask them to create one in Daily Tasks first.`}</div></div>
       </div>
       <div class="f-grid f-2">
-        <div class="field"><label>Assignee</label><select id="tWho">
-          ${people.map(u=>`<option value="${u.id}" ${(t?.assignee||preset.assignee||me.id)===u.id?"selected":""}>${esc(u.name)} — ${esc(titleOf(u))}</option>`).join("")}</select></div>
+        <div class="field"><label>Stage</label><select id="tStage">
+          ${STAGES.map(s=>`<option ${((t?.stage||preset.stage||STAGE_START)===s)?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
         <div class="field"><label>Priority</label><select id="tPr">
           ${["urgent","high","medium","low"].map(p=>`<option value="${p}" ${(t?.pr||"medium")===p?"selected":""}>${p[0].toUpperCase()+p.slice(1)}</option>`).join("")}</select></div>
       </div>
@@ -5744,18 +5788,16 @@ function openTaskModal(taskId, preset={}){
   const whoPick=$("#tWho"), boardPick=$("#tPipe"), boardHint=$("#tPipeHint");
   whoPick.addEventListener("change",()=>{
     const assigneeId=whoPick.value, assigneePipes=ownPipesFor(assigneeId);
-    boardPick.innerHTML=assigneePipes.length
-      ? assigneePipes.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")
-      : `<option value="">No board owned by ${esc(U(assigneeId)?.name||"this person")}</option>`;
-    boardPick.required=true;
-    if(assigneePipes.length){
-      const preferred=assigneePipes.find(p=>p.id===state.pipe)||assigneePipes[0];
-      boardPick.value=preferred.id;
-      boardHint.textContent="Only boards owned by the selected assignee are shown.";
-    } else {
-      boardPick.value="";
-      boardHint.textContent="Create a task board for this person before assigning a task.";
-    }
+    /* going back to the original assignee of an old task brings its board back */
+    const keepLegacy = legacyPipe && t && assigneeId===t.assignee ? legacyPipe : null;
+    const preferred = assigneePipes.find(p=>p.id===state.pipe) || assigneePipes[0];
+    boardPick.innerHTML = pipeOpts(assigneePipes, keepLegacy?keepLegacy.id:preferred?.id, keepLegacy)
+      || `<option value="">No board owned by ${whoName(assigneeId)}</option>`;
+    const has = assigneePipes.length || keepLegacy;
+    boardHint.style.color = has ? "var(--muted)" : "var(--critical)";
+    boardHint.textContent = has
+      ? `Showing only ${U(assigneeId)?.name||"this person"}'s boards.`
+      : `${U(assigneeId)?.name||"This person"} has no board yet — ask them to create one in Daily Tasks first.`;
   });
   $("#tStage").addEventListener("change",()=>{
     $("#tPauseWrap").style.display = $("#tStage").value===STAGE_PAUSE ? "block" : "none";
@@ -5773,7 +5815,7 @@ function openTaskModal(taskId, preset={}){
       desc:$("#tDesc").value.trim(), done:$("#tDone").checked };
     if(!vals.title) return;
     if(!vals.pipe){
-      openInfoModal("No task board for this person", "Create a task board owned by the selected person, then assign the task to that board.");
+      openInfoModal("No task board for this person", `${whoName($("#tWho").value)} doesn't own a board yet. Ask them to create one in <b>Daily Tasks</b>, then assign the task to it.`);
       return;
     }
     /* ticking done and choosing the Done stage are the same act - keep them in
