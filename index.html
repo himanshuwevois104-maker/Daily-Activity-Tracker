@@ -998,7 +998,7 @@ const mapReq = r => ({id:r.id, kind:r.kind, by:r.requested_by, on:(r.created_at|
   status:r.status, payload:r.payload||{}, note:r.note||"", decidedBy:r.decided_by,
   decidedOn:r.decided_on, reason:r.reason||""});
 const mapEv = e => ({id:e.id, user:e.user_id, type:e.type, text:e.text, ts:new Date(e.created_at).getTime()});
-const mapKpi  = k => ({id:k.id, name:k.name, unit:k.unit||"", detail:k.detail||"", active:k.active!==false});
+const mapKpi  = k => ({id:k.id, name:k.name, unit:k.unit||"", detail:k.detail||"", active:k.active!==false, createdBy:k.created_by||null});
 const mapKTgt = t => ({id:t.id, kpi:t.kpi_id, user:t.user_id, period:(t.period||"").slice(0,10),
   target:Number(t.target)||0, achieved:Number(t.achieved)||0, note:t.note||"",
   setBy:t.set_by, updatedAt:t.updated_at?new Date(t.updated_at).getTime():null});
@@ -2772,6 +2772,11 @@ function openKpiModal(existing){
   if(!team.length){ toast("Nobody reports to you yet."); return; }
   const editing = !!existing;
   const preUser = existing ? [existing.user] : team.map(u=>u.id);
+  /* Each manager keeps their own KPI list: the picker offers only the KPIs this
+     person created (plus the one already on the target being edited). A manager
+     with none yet starts straight on "Add a new KPI". */
+  const myKpis = KPIS.filter(k=>k.createdBy===me.id || (existing && existing.kpi===k.id));
+  const startNew = !existing && !myKpis.length;
   modal(`<div class="modal wide">
     <h3>${editing?"Edit target":"Set targets"}</h3>
     <div class="msub">${editing
@@ -2780,13 +2785,14 @@ function openKpiModal(existing){
     <form id="kpiForm" class="f-grid">
       <div class="f-grid f-2">
         <div class="field"><label>What is being measured</label>
-          <select id="kKpi" required>${KPIS.map(k=>`<option value="${k.id}" ${existing&&existing.kpi===k.id?"selected":""}>${esc(k.name)}${k.unit?` (${esc(k.unit)})`:""}</option>`).join("")}
-            <option value="__new">＋ Add a new KPI…</option></select></div>
+          <select id="kKpi" required ${editing?"disabled":""}>${myKpis.map(k=>`<option value="${k.id}" ${existing&&existing.kpi===k.id?"selected":""}>${esc(k.name)}${k.unit?` (${esc(k.unit)})`:""}</option>`).join("")}
+            <option value="__new" ${startNew?"selected":""}>＋ Add a new KPI…</option></select>
+          <div class="hint">${myKpis.length?"Your own KPIs — add a new one any time":"You have no KPIs yet — name your first one below"}</div></div>
         <div class="field"><label>Month</label>
           <select id="kMonth">${[0,1,2].map(i=>{const m=monthKey(new Date(todayD.getFullYear(),todayD.getMonth()-i+1,1));
             return `<option value="${m}" ${((existing?existing.period:THIS_MONTH)===m)?"selected":""}>${esc(monthName(m))}</option>`;}).join("")}</select></div>
       </div>
-      <div class="f-grid f-2" id="kNewWrap" style="display:none">
+      <div class="f-grid f-2" id="kNewWrap" style="display:${startNew?"grid":"none"}">
         <div class="field"><label>New KPI name</label><input id="kNewName" maxlength="40" placeholder="e.g. Vehicles serviced"></div>
         <div class="field"><label>Unit</label><input id="kNewUnit" maxlength="16" placeholder="e.g. vehicles"></div>
       </div>
@@ -2831,10 +2837,13 @@ function openKpiModal(existing){
     if(kpiId === "__new"){
       const nm=$("#kNewName").value.trim();
       if(!nm){ toast("Give the new KPI a name."); return; }
+      const dup = KPIS.find(k=>k.createdBy===me.id && k.name.toLowerCase()===nm.toLowerCase());
+      if(dup){ kpiId = dup.id; } else {
       const made = await guard(()=>DB.ins("dat_kpis",{name:nm, unit:$("#kNewUnit").value.trim(), created_by:me.id}));
       if(!made) return;
       KPIS.push(mapKpi(made)); KPIS.sort((a,b)=>a.name.localeCompare(b.name));
       kpiId = made.id;
+      }
     }
 
     if(editing){
