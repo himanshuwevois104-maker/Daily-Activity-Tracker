@@ -3279,7 +3279,6 @@ function renderDashboard(){
     <div class="card tile"><div class="lbl">Paused</div><div class="val" style="${k.paused?'color:var(--warning)':''}">${k.paused}</div><div class="delta">${k.paused?"someone is blocked":"nothing stuck"}</div></div>
   </div>
 
-  ${ulbtExpiryCard()}
   ${team?rightNowCard():""}
   ${team?attentionCard():""}
   ${team?teamSummaryCard():""}
@@ -6615,7 +6614,7 @@ function umPaintAll(){
   if(!$("#umPanel")) return;
   const both = can(state.me,"ulbmap") && can(state.me,"ulbtender"), alerts = ulbtAlerts();
   const layerBtns = both ? `<div class="um-layer"><button data-uml="visit" class="${um.layer==="visit"?"on":""}">BD visits</button><button data-uml="tender" class="${um.layer==="tender"?"on":""}">D2D tenders</button></div>` : "";
-  const alertBtn = alerts.length ? `<button class="um-alertbtn" id="umAlerts" title="Show ULBs whose contract ends within 6 months">⚠ ${alerts.length} contract${alerts.length>1?"s":""} ending within 6 months</button>` : "";
+  const alertBtn = alerts.length ? `<button class="um-alertbtn" id="umAlerts" title="Every ULB, every firm: running contracts whose end date is within 6 months">⚠ ${alerts.length} contract${alerts.length>1?"s":""} ending within 6 months</button>` : "";
   if(um.layer==="tender"){
     const n={}; ULBS.forEach(u=>{ const k=utState(u.id); n[k]=(n[k]||0)+1; });
     const wr = canEdit(state.me,"ulbtender");
@@ -6660,6 +6659,17 @@ function umPanel(){
 const UM_RANK = {"Nagar Nigam":0,"Nagar Parishad":1,"Nagar Palika":2};
 function umList(){
   const L=$("#umList"); if(!L) return;
+  if(um.layer==="tender" && um.tfilter==="exp" && !um.district && !um.q){
+    const al=ulbtAlerts();
+    L.innerHTML = `<div class="um-empty" style="color:var(--ut-exp);font-weight:650">⚠ ${al.length} contract${al.length===1?"":"s"} ending within 6 months — any firm, any ULB. Plan re-tender / extension follow-up.</div>`
+      + (al.length ? al.map(t=>{ const u=ULBS.find(x=>x.id===t.ulb);
+        return `<button class="um-row" data-umu="${esc(t.ulb)}"><i class="um-dot t-exp"></i><div style="min-width:0"><div class="nm">${esc(u?.name||t.ulbName||t.ulb)}${t.zone?` — ${esc(t.zone)}`:""}</div>
+          <div class="sm">${esc(t.firm||"Firm not known")} · ends ${esc(umFmt(t.end))} · ${utLeft(t)}</div></div>
+          <span class="um-tag t-exp">${utKind(t)==="over"?"Past end":Math.max(0,Math.round(utDays(t.end)/30.44))+" mo"}</span></button>`; }).join("")
+        : `<div class="um-empty">Nothing ends within 6 months. Rows without a contract end date cannot be tracked — add end dates on the ULB cards.</div>`);
+    L.querySelectorAll("[data-umu]").forEach(b=>b.onclick=()=>umOpenUlb(b.dataset.umu));
+    return;
+  }
   if(um.district || um.q){
     const us=(um.district?umIn(um.district):ULBS).filter(umPass)
       .sort((a,b)=>(UM_RANK[a.category]??3)-(UM_RANK[b.category]??3) || a.name.localeCompare(b.name));
